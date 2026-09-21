@@ -91,7 +91,7 @@ Notes:
 ./scripts/swap-into-crossover.sh
 ```
 
-This copies `/Applications/CrossOver.app` → `build/CrossOver_patched.app`, swaps in the 3 patched modules, ad-hoc-signs them, strips the bundle seal, and removes quarantine. Then run the game through `build/CrossOver_patched.app` (§4).
+This copies `/Applications/CrossOver.app` → `/Applications/CrossOver_Endfield_Patch.app`, swaps in the 3 patched modules, ad-hoc-signs them, strips the bundle seal, and removes quarantine. Then run the game through `CrossOver_Endfield_Patch.app` (§4).
 
 ### 3. Deploy into CrossOver — manual
 
@@ -99,8 +99,8 @@ If you prefer to do it by hand (e.g. to understand or audit it):
 
 ```bash
 # Copy CrossOver (must be 26.2) so the original stays intact
-cp -a /Applications/CrossOver.app "$HOME/CrossOver_patched.app"
-CXR="$HOME/CrossOver_patched.app/Contents/SharedSupport/CrossOver"
+cp -a /Applications/CrossOver.app "/Applications/CrossOver_Endfield_Patch.app"
+CXR="/Applications/CrossOver_Endfield_Patch.app/Contents/SharedSupport/CrossOver"
 B="$PWD/build/wine-build64"
 
 # Swap the 3 patched modules (back up the originals first)
@@ -116,9 +116,9 @@ cp "$B/dlls/ntoskrnl.exe/x86_64-windows/ntoskrnl.exe" "$CXR/lib/wine/x86_64-wind
 for f in x86_64-unix/ntdll.so x86_64-windows/kernel32.dll x86_64-windows/ntoskrnl.exe; do
   codesign --force --sign - "$CXR/lib/wine/$f"
 done
-rm -rf "$HOME/CrossOver_patched.app/Contents/_CodeSignature" \
-       "$HOME/CrossOver_patched.app/Contents/CodeResources"
-xattr -drs com.apple.quarantine "$HOME/CrossOver_patched.app"
+rm -rf "/Applications/CrossOver_Endfield_Patch.app/Contents/_CodeSignature" \
+       "/Applications/CrossOver_Endfield_Patch.app/Contents/CodeResources"
+xattr -drs com.apple.quarantine "/Applications/CrossOver_Endfield_Patch.app"
 ```
 
 | Patched module | Contains |
@@ -132,12 +132,16 @@ xattr -drs com.apple.quarantine "$HOME/CrossOver_patched.app"
 Point the **patched** CrossOver at your existing Endfield bottle:
 
 ```bash
-CXR="$PWD/build/CrossOver_patched.app/Contents/SharedSupport/CrossOver"
+# Easy launcher script (handles wineserver cleanup, graphics args, debug logging):
+./scripts/launch-endfield.sh
+
+# Or invoke wine directly:
+CXR="/Applications/CrossOver_Endfield_Patch.app/Contents/SharedSupport/CrossOver"
 "$CXR/bin/wine" --bottle "Arknights Endfield" \
   --cx-app "C:/Program Files/GRYPHLINK/games/Arknights Endfield/Endfield.exe"
 ```
 
-Or launch `CrossOver_patched.app` from Finder and start Endfield from its bottle as usual. It should reach the login screen. To capture a debug log: prefix with `CX_LOG=/tmp/ef.log WINEDEBUG=+seh`.
+Or launch `CrossOver_Endfield_Patch.app` from Finder and start Endfield from its bottle as usual. It should reach the login screen. To capture a debug log: prefix with `CX_LOG=/tmp/ef.log WINEDEBUG=+seh`.
 
 ---
 

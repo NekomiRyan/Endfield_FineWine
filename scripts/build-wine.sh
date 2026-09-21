@@ -31,13 +31,28 @@ WINE_SRC="$BUILD_DIR/wine-src"          # extracted sources/wine
 WINE_BUILD="$BUILD_DIR/wine-build64"    # out-of-tree 64-bit build
 BREW="$(command -v brew || echo /opt/homebrew/bin/brew)"
 
+get_bison_bin() {
+  local p
+  p="$("$BREW" --prefix bison 2>/dev/null || true)"
+  if [ -n "$p" ] && [ -d "$p/bin" ]; then
+    echo "$p/bin"
+  elif [ -d "/opt/homebrew/opt/bison/bin" ]; then
+    echo "/opt/homebrew/opt/bison/bin"
+  elif [ -d "/usr/local/opt/bison/bin" ]; then
+    echo "/usr/local/opt/bison/bin"
+  else
+    echo ""
+  fi
+}
+
 log(){ printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
 cmd_deps() {
   log "Installing Homebrew build dependencies"
   "$BREW" install bison mingw-w64 pkg-config gnutls freetype sdl2 molten-vk meson || true
+  local bb; bb="$(get_bison_bin)"
   echo "NOTE: put Homebrew bison (>=3.0) AHEAD of system bison (2.3) on PATH before configure:"
-  echo "  export PATH=\"$("$BREW" --prefix bison)/bin:\$PATH\""
+  echo "  export PATH=\"${bb:-\$($BREW --prefix bison)/bin}:\$PATH\""
 }
 
 cmd_fetch() {
@@ -73,7 +88,12 @@ cmd_apply() {
 cmd_configure() {
   log "Configuring 64-bit-only Wine (standard toolchain, no win32on64/cx-llvm)"
   [ -d "$WINE_SRC" ] || { echo "run 'fetch' first"; exit 1; }
-  export PATH="$("$BREW" --prefix bison)/bin:$PATH"
+  local bison_bin; bison_bin="$(get_bison_bin)"
+  if [ -n "$bison_bin" ]; then
+    export PATH="$bison_bin:$PATH"
+  else
+    echo "WARNING: bison >= 3.0 directory not found; configure might fail. Run '$0 deps' first." >&2
+  fi
   rm -rf "$WINE_BUILD"; mkdir -p "$WINE_BUILD"
   # CRITICAL (learned 2026-07-14): CrossOver on Apple Silicon builds the ENTIRE tree as x86_64
   # under Rosetta. Run configure+make under `arch -x86_64` so __x86_64__ is defined for the unix
@@ -82,7 +102,7 @@ cmd_configure() {
   # (fine for reaching the game's stage-1 fault — no fonts/TLS/graphics needed). This yields a
   # MINIMAL Wine; for a fully playable build, install x86_64 deps (Intel Homebrew) and drop the --without-* flags.
   arch -x86_64 /bin/bash -c '
-    export PATH="'"$("$BREW" --prefix bison)"'/bin:$PATH"
+    [ -n "'"$bison_bin"'" ] && export PATH="'"$bison_bin"':$PATH"
     export MACOSX_DEPLOYMENT_TARGET=10.15
     # On Apple Silicon, running Apple clang under Rosetta does not change its default
     # target: it still emits arm64 code. Force the host objects to x86_64 explicitly,
@@ -91,7 +111,7 @@ cmd_configure() {
     export CFLAGS="${CFLAGS:+$CFLAGS }-arch x86_64"
     export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-arch x86_64"
     export LDFLAGS="${LDFLAGS:+$LDFLAGS }-arch x86_64"
-    echo "host arch: $(uname -m); bison: $(bison --version | head -1)"
+    echo "host arch: $(uname -m); bison: $(bison --version 2>/dev/null | head -1 || echo 'none')"
     cd "'"$WINE_BUILD"'"
     CC=clang CXX=clang++ "'"$WINE_SRC"'/configure" --enable-archs=x86_64 --disable-tests --without-x \
       --without-freetype --without-gnutls --without-sdl --without-vulkan --without-krb5 \
@@ -109,8 +129,10 @@ cmd_configure() {
 cmd_build() {
   log "Building (make -j$JOBS under arch -x86_64) — expect 20-60 min"
   [ -d "$WINE_BUILD" ] || { echo "run 'configure' first"; exit 1; }
+  local bison_bin; bison_bin="$(get_bison_bin)"
   arch -x86_64 /bin/bash -c '
-    export PATH="'"$("$BREW" --prefix bison)"'/bin:$PATH"; export MACOSX_DEPLOYMENT_TARGET=10.15
+    [ -n "'"$bison_bin"'" ] && export PATH="'"$bison_bin"':$PATH"
+    export MACOSX_DEPLOYMENT_TARGET=10.15
     export CFLAGS="${CFLAGS:+$CFLAGS }-arch x86_64"
     export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-arch x86_64"
     export LDFLAGS="${LDFLAGS:+$LDFLAGS }-arch x86_64"

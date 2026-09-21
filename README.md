@@ -23,9 +23,9 @@ As of this project, CodeWeavers rated Endfield **"Installs, Will Not Run"** and 
 - ✅ VMProtect/TenProtect protector (`EndfieldBase.dll`)
 - ✅ **ACE anti-cheat** (`ACE-Base64.dll`, `ACE-Service64.exe`, kernel driver `ACE-BASE.sys`) — passes fully
 - ✅ Unity engine loads (Endfield is Unity IL2CPP), renders through **Apple D3DMetal**
-- ✅ **Login screen + gameplay** — reported running well on an Apple M3
+- ✅ **Login screen + gameplay** — verified running on Apple M4 Pro (and M3)
 
-**Tested on:** Apple M3, macOS 26.5, CrossOver 26.2.0. Other Apple Silicon chips and nearby macOS/CrossOver-26.2 versions are expected to work but are unverified.
+**Tested on:** Apple M4 Pro (MacBook Pro, 12-core, 24 GB Unified Memory), macOS 27.0, CrossOver 26.2.0. Also tested on Apple M3 / macOS 26.5. Other Apple Silicon chips and nearby macOS/CrossOver-26.2 versions are expected to work.
 
 One cosmetic residual: a background ACE thread aborts on `ntoskrnl.exe.PsGetProcessExitStatus`; the game reaches login/gameplay regardless.
 
@@ -46,7 +46,7 @@ Both Rosetta fixes are ~40 lines in `dlls/ntdll/unix/signal_x86_64.c` and help a
 | | |
 |---|---|
 | **Mac** | Apple Silicon (M-series). Intel is not supported. |
-| **macOS** | 15 (Sequoia) or newer recommended; developed on macOS 26.5. |
+| **macOS** | 15 (Sequoia) or newer recommended; tested on macOS 27.0 and macOS 26.5. |
 | **Rosetta 2** | Required (`softwareupdate --install-rosetta --agree-to-license`). The patched Wine is x86_64. |
 | **CrossOver** | **26.2** specifically (the swapped modules must match the build's Wine 11.0 ABI). A licensed CrossOver install from [codeweavers.com](https://www.codeweavers.com/crossover). |
 | **Xcode CLT** | `xcode-select --install` |
@@ -91,7 +91,7 @@ Notes:
 ./scripts/swap-into-crossover.sh
 ```
 
-This copies `/Applications/CrossOver.app` → `build/CrossOver_patched.app`, swaps in the 3 patched modules, ad-hoc-signs them, strips the bundle seal, and removes quarantine. Then run the game through `build/CrossOver_patched.app` (§4).
+This copies `/Applications/CrossOver.app` → `/Applications/CrossOver_Endfield_Patch.app`, swaps in the 3 patched modules, ad-hoc-signs them, strips the bundle seal, and removes quarantine. Then run the game through `CrossOver_Endfield_Patch.app` (§4).
 
 ### 3. Deploy into CrossOver — manual
 
@@ -99,8 +99,8 @@ If you prefer to do it by hand (e.g. to understand or audit it):
 
 ```bash
 # Copy CrossOver (must be 26.2) so the original stays intact
-cp -a /Applications/CrossOver.app "$HOME/CrossOver_patched.app"
-CXR="$HOME/CrossOver_patched.app/Contents/SharedSupport/CrossOver"
+cp -a /Applications/CrossOver.app "/Applications/CrossOver_Endfield_Patch.app"
+CXR="/Applications/CrossOver_Endfield_Patch.app/Contents/SharedSupport/CrossOver"
 B="$PWD/build/wine-build64"
 
 # Swap the 3 patched modules (back up the originals first)
@@ -116,9 +116,9 @@ cp "$B/dlls/ntoskrnl.exe/x86_64-windows/ntoskrnl.exe" "$CXR/lib/wine/x86_64-wind
 for f in x86_64-unix/ntdll.so x86_64-windows/kernel32.dll x86_64-windows/ntoskrnl.exe; do
   codesign --force --sign - "$CXR/lib/wine/$f"
 done
-rm -rf "$HOME/CrossOver_patched.app/Contents/_CodeSignature" \
-       "$HOME/CrossOver_patched.app/Contents/CodeResources"
-xattr -drs com.apple.quarantine "$HOME/CrossOver_patched.app"
+rm -rf "/Applications/CrossOver_Endfield_Patch.app/Contents/_CodeSignature" \
+       "/Applications/CrossOver_Endfield_Patch.app/Contents/CodeResources"
+xattr -drs com.apple.quarantine "/Applications/CrossOver_Endfield_Patch.app"
 ```
 
 | Patched module | Contains |
@@ -132,18 +132,22 @@ xattr -drs com.apple.quarantine "$HOME/CrossOver_patched.app"
 Point the **patched** CrossOver at your existing Endfield bottle:
 
 ```bash
-CXR="$PWD/build/CrossOver_patched.app/Contents/SharedSupport/CrossOver"
+# Easy launcher script (handles wineserver cleanup, graphics args, debug logging):
+./scripts/launch-endfield.sh
+
+# Or invoke wine directly:
+CXR="/Applications/CrossOver_Endfield_Patch.app/Contents/SharedSupport/CrossOver"
 "$CXR/bin/wine" --bottle "Arknights Endfield" \
   --cx-app "C:/Program Files/GRYPHLINK/games/Arknights Endfield/Endfield.exe"
 ```
 
-Or launch `CrossOver_patched.app` from Finder and start Endfield from its bottle as usual. It should reach the login screen. To capture a debug log: prefix with `CX_LOG=/tmp/ef.log WINEDEBUG=+seh`.
+Or launch `CrossOver_Endfield_Patch.app` from Finder and start Endfield from its bottle as usual. It should reach the login screen. To capture a debug log: prefix with `CX_LOG=/tmp/ef.log WINEDEBUG=+seh`.
 
 ---
 
 ## Graphics & performance (GPTK4)
 
-**You may not need GPTK4.** CrossOver 26.2 already bundles **D3DMetal 3.0** (= GPTK 3.0), and that is what Endfield renders on out of the box — it runs well on the tested M3 / macOS 26.5 setup with no extra graphics work. Apple's **Game Porting Toolkit 4** upgrades that bundled D3DMetal **3.0 → 4** (DirectX 12 → **Metal 4**, MetalFX frame-generation, HDR) for the newest/fastest path — but GPTK4 is **macOS 27-beta-era software**, so treat it as an **optional, advanced** upgrade.
+**You may not need GPTK4.** CrossOver 26.2 already bundles **D3DMetal 3.0** (= GPTK 3.0), and that is what Endfield renders on out of the box — it runs well on the tested Apple M4 Pro / macOS 27.0 setup (as well as M3 / macOS 26.5) with no extra graphics work. Apple's **Game Porting Toolkit 4** upgrades that bundled D3DMetal **3.0 → 4** (DirectX 12 → **Metal 4**, MetalFX frame-generation, HDR) for the newest/fastest path — but GPTK4 is **macOS 27-era software**, so treat it as an **optional, advanced** upgrade.
 
 > **On "Vulkan":** GPTK/D3DMetal does **not** provide Vulkan — it translates DirectX **straight to Metal**. Vulkan on Apple GPUs comes from **MoltenVK** (Vulkan → Metal), which CrossOver bundles and CXPatcher/Procyon upgrade. So there are two graphics families: **DirectX → Metal directly** (D3DMetal / DXMT — where GPTK lives) vs **DirectX/Vulkan → Vulkan → Metal** (DXVK / vkd3d + MoltenVK). The direct D3DMetal path is the faster one.
 
@@ -169,7 +173,7 @@ Also enable **DLSS (MetalFX)** and **MSync**, and set `ROSETTA_ADVERTISE_AVX=1` 
    **Manual** — replace the two D3DMetal libraries (keep the `-old` backups):
    ```bash
    GPTK_VOL="/Volumes/<mounted GPTK volume — check with: ls /Volumes/>"
-   cd "$HOME/CrossOver_patched.app/Contents/SharedSupport/CrossOver/lib64/apple_gptk/external"
+   cd "/Applications/CrossOver_Endfield_Patch.app/Contents/SharedSupport/CrossOver/lib64/apple_gptk/external"
    mv D3DMetal.framework D3DMetal.framework-old
    mv libd3dshared.dylib  libd3dshared.dylib-old
    ditto "$GPTK_VOL/redist/lib/external/" .

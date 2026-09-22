@@ -9,15 +9,18 @@ STAGE 2  ACE init: missing ntoskrnl exports + KiUser*Dispatcher detection + timi
          CR3 read Rosetta mis-reports.                                        ✅ FIXED (dwproton + stage1-macos)
 ```
 
-## `stage1-macos/` — our two macOS/Rosetta-2 fixes (+ a build fix)
+## `stage1-macos/` — our macOS/Rosetta-2 fixes (+ build + msync fixes)
 
-Original to this project. Both live in `dlls/ntdll/unix/signal_x86_64.c` (`segv_handler`, `TRAP_x86_PRIVINFLT`):
+Original to this project. The two Rosetta fixes live in `dlls/ntdll/unix/signal_x86_64.c` (`segv_handler`, `TRAP_x86_PRIVINFLT`):
 
 - `0001-macos-rosetta-signal-fixes-nop-and-privinstr.patch`
   - **`0F 1F` NOP skip** — Rosetta raises an illegal-instruction fault on the multi-byte NOP VMProtect emits pervasively; CrossOver's `handle_cet_nop` handled `0F 1E` but not `0F 1F`. We decode the NOP length and advance past it. *Cleared stage 1.* ([../docs/12-stage1-protector-fault.md](../docs/12-stage1-protector-fault.md))
   - **Privileged-instruction fix** — Rosetta reports `mov reg,cr3` (ACE-BASE.sys's anti-VM CR3 read) as invalid-opcode instead of `#GP`, so Wine handed ACE `EXCEPTION_ILLEGAL_INSTRUCTION` where Linux gives `EXCEPTION_PRIV_INSTRUCTION`; we call Wine's existing `is_privileged_instr()` on the Rosetta path and deliver the right code. *Cleared ACE "driver error 13."* ([../docs/13-working-solution.md](../docs/13-working-solution.md))
   - Contains an optional `CWC-ILLEGAL-INSTR` debug `ERR` line (harmless; remove for production).
 - `0000-build-fix-win32u-vulkan-soname-fallback.patch` — lets the minimal (no-vulkan) build compile.
+
+- `0004-ntdll-don-t-close-the-msync-alert-index-on-thread-exit.patch`, in `dlls/ntdll/unix/thread.c`:
+  - Skips closing `alert_fd` on thread exit under MSync: it holds a shared-memory index owned by the server. Closing it can close another thread's wineserver pipe and cause Unity's "SuspendThread loop failed" error.
 
 ## `stage2-dwproton/` — the ported dw-proton anti-cheat patches
 
@@ -33,7 +36,7 @@ Known residual: ACE also calls `ntoskrnl.exe.PsGetProcessExitStatus`, which is *
 
 ## Applying
 
-All 23 patches are unified diffs and apply cleanly with `git apply` in this order: `em-backports/*` (numeric) → `misc/*` (numeric) → `stage1-macos/0000` → `stage1-macos/0001`. This is automated by [`../scripts/build-wine.sh apply`](../scripts/build-wine.sh). Expect to rebase if CrossOver's Wine base changes (the dw-proton set targets the `b816be489` snapshot; the latest lives baked into `dawn.wine/dawn-winery/wine-dwproton` branch `base`).
+All 24 patches are unified diffs and apply cleanly with `git apply` in this order: `em-backports/*` (numeric) → `misc/*` (numeric) → `stage1-macos/*` (numeric). This is automated by [`../scripts/build-wine.sh apply`](../scripts/build-wine.sh). Expect to rebase if CrossOver's Wine base changes (the dw-proton set targets the `b816be489` snapshot; the latest lives baked into `dawn.wine/dawn-winery/wine-dwproton` branch `base`).
 
 ## License / provenance
 

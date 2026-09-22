@@ -19,6 +19,9 @@ Original to this project. Both live in `dlls/ntdll/unix/signal_x86_64.c` (`segv_
   - Contains an optional `CWC-ILLEGAL-INSTR` debug `ERR` line (harmless; remove for production).
 - `0000-build-fix-win32u-vulkan-soname-fallback.patch` — lets the minimal (no-vulkan) build compile.
 
+- `0004-ntdll-don-t-close-the-msync-alert-index-on-thread-exit.patch`, in `dlls/ntdll/unix/thread.c`:
+  - Skips closing `alert_fd` on thread exit under MSync: it holds a shared-memory index owned by the server. Closing it can close another thread's wineserver pipe and cause Unity's "SuspendThread loop failed" error.
+
 ## `stage2-dwproton/` — the ported dw-proton anti-cheat patches
 
 The Endfield-relevant subset of dw-proton's fix commit `b816be489`, from the `dawn-winery/dwproton-mirror` (fetched by [`../scripts/fetch-dwproton-patches.sh`](../scripts/fetch-dwproton-patches.sh)). Analysis: [../docs/02-dwproton-ace-patches.md](../docs/02-dwproton-ace-patches.md).

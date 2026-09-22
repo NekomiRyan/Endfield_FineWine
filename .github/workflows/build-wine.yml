@@ -45,6 +45,25 @@ on:
         required: false
         default: true
         type: boolean
+  # Reusable-workflow entrypoint — called by nightly.yml, which gates the call on
+  # "new code since the last nightly" and only releases if this build is green.
+  workflow_call:
+    inputs:
+      cx_version:
+        description: CrossOver source version to build
+        required: false
+        default: "26.2.0"
+        type: string
+      runner:
+        description: macOS runner image
+        required: false
+        default: "xcode-27"
+        type: string
+      build_patcher_app:
+        description: Also assemble FineWine Patcher.app
+        required: false
+        default: true
+        type: boolean
   push:
     paths:
       - "patches/**"

@@ -1,0 +1,307 @@
+# build-wine.yml — build the patched CrossOver Wine modules on GitHub-hosted macOS.
+#
+# Produces, as workflow artifacts:
+#   1. `wine-modules` — the 3 patched Wine modules (ntdll.so, kernel32.dll, ntoskrnl.exe),
+#      pre-finished for drop-in use (lib64 LC_RPATH baked in + ad-hoc signed), plus
+#      SHA256SUMS + BUILD-INFO.txt. These feed swap-into-crossover.sh / the Patcher app.
+#   2. `patcher-app` (optional) — FineWine Patcher.app assembled around those modules.
+#
+# Runner: `xcode-27` = the "latest macOS + latest Xcode" image (macOS 27.0 + Xcode 27.0 RC,
+# public preview; arm64). Override with `runner: macos-26` (GA image, default Xcode 26.6)
+# from the manual dispatch. GitHub's arm64 macOS images ship Rosetta 2 preinstalled.
+#
+# Notes:
+#   - Builds run the existing scripts/build-wine.sh pipeline (fetch -> apply -> configure -> build),
+#     unchanged except: CC/CXX now default to clang but honor env overrides (so we can use ccache).
+#   - Homebrew deps are lean: only bison, mingw-w64 and ccache. The script's `deps` target
+#     installs more than the minimal configure needs, so we do it inline here.
+#   - macOS 27 (Golden Gate) is a Homebrew Tier-1 Apple Silicon OS (Homebrew 7.0.0, Sept 2026),
+#     so bison/mingw-w64/ccache install from bottles, not source.
+#   - First (cold) run takes ~1.5-2.5 h on the 3-vCPU M1; ccache + tarball caches make
+#     subsequent runs much faster.
+#   - Cancel-in-progress is enabled: a superseded run stops a redundant build (its ccache
+#     upload is forfeited — acceptable tradeoff).
+
+name: build-wine
+
+on:
+  workflow_dispatch:
+    inputs:
+      cx_version:
+        description: CrossOver source version to build (must match your CrossOver.app)
+        required: false
+        default: "26.2.0"
+        type: string
+      runner:
+        description: macOS runner image (xcode-27 = macOS 27 + Xcode 27 preview; macos-26 = GA)
+        required: false
+        default: "xcode-27"
+        type: choice
+        options:
+          - "xcode-27"
+          - "macos-26"
+      build_patcher_app:
+        description: Also assemble FineWine Patcher.app around the built modules
+        required: false
+        default: true
+        type: boolean
+  push:
+    paths:
+      - "patches/**"
+      - "scripts/build-wine.sh"
+      - ".github/workflows/build-wine.yml"
+
+concurrency:
+  group: build-wine-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-wine:
+    name: Wine modules (macOS ${{ inputs.runner || 'xcode-27' }})
+    runs-on: ${{ inputs.runner || 'xcode-27' }}
+    timeout-minutes: 240
+    env:
+      CX_VER: ${{ inputs.cx_version || '26.2.0' }}
+      BUILD_DIR: ${{ github.workspace }}/build
+      # ccache wraps Apple clang (CC/CXX now honor overrides in scripts/build-wine.sh)
+      CC: ccache clang
+      CXX: ccache clang++
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
+      CCACHE_COMPRESS: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Short SHA
+        run: echo "SHORT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
+
+      - name: Environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "== os: $(uname -m) / $(sw_vers -productName) $(sw_vers -productVersion)"
+          echo "== xcode: $(xcodebuild -version 2>/dev/null | tr '\n' ' ')"
+          echo "== clang: $(/usr/bin/clang --version | head -1)"
+          echo "== cpus: $(sysctl -n hw.ncpu)"
+          echo "== disk:"; df -h "$RUNNER_WORKSPACE" | tail -1
+
+      - name: Ensure Rosetta 2 is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/sbin/softwareupdate --install-rosetta --agree-to-license >/dev/null 2>&1 || true
+          rosetta_uname="$(arch -x86_64 uname -m 2>/dev/null || true)"
+          echo "host: $(uname -m) / rosetta: ${rosetta_uname:-unavailable}"
+          [ "$rosetta_uname" = "x86_64" ] || echo "::warning::Rosetta 2 not usable — the arch -x86_64 build will fail downstream."
+
+      - name: Install Homebrew build deps (lean)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # NOTE: do NOT install pkg-config here — the image preinstalls pkgconf (which
+          # provides the pkg-config CLI) and the two formulae conflict with each other.
+          # Explicit `brew update` first: the images ship Homebrew 6.0.22, but macOS 27
+          # (Golden Gate) bottles only arrived with Homebrew 7.0.0 — without the update,
+          # mingw-w64 could fall back to a 40+ min source build.
+          brew update --quiet
+          brew install --quiet bison mingw-w64 ccache
+          echo "bison: $("$(brew --prefix bison)"/bin/bison --version | head -1)"
+          command -v pkg-config && pkg-config --version || echo "::warning::pkg-config not found on PATH"
+
+      - name: Cache CrossOver source tarball
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/build/crossover-sources-${{ env.CX_VER }}.tar.gz
+          key: crossover-src-${{ env.CX_VER }}
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ inputs.runner || 'xcode-27' }}-${{ env.CX_VER }}-v1
+
+      - name: Fetch CrossOver Wine source
+        run: ./scripts/build-wine.sh fetch
+
+      - name: Apply all patches
+        run: ./scripts/build-wine.sh apply
+
+      - name: Configure (64-bit only, arch -x86_64)
+        run: ./scripts/build-wine.sh configure
+
+      - name: Build (make -j)
+        run: ./scripts/build-wine.sh build
+
+      - name: ccache + disk stats
+        shell: bash
+        run: |
+          ccache -s
+          df -h "$RUNNER_WORKSPACE" | tail -1
+          du -sh build
+
+      - name: Stage, finish and verify the 3 patched modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          B="${{ github.workspace }}/build/wine-build64"
+          D="${{ github.workspace }}/dist/wine-modules"
+          mkdir -p "$D/dlls/ntdll" "$D/dlls/kernel32/x86_64-windows" "$D/dlls/ntoskrnl.exe/x86_64-windows"
+          cp "$B/dlls/ntdll/ntdll.so"                           "$D/dlls/ntdll/ntdll.so"
+          cp "$B/dlls/kernel32/x86_64-windows/kernel32.dll"     "$D/dlls/kernel32/x86_64-windows/kernel32.dll"
+          cp "$B/dlls/ntoskrnl.exe/x86_64-windows/ntoskrnl.exe" "$D/dlls/ntoskrnl.exe/x86_64-windows/ntoskrnl.exe"
+
+          # Bake the lib64 LC_RPATH (needed by CrossOver's cxcompatdb / D3DMetal) so the
+          # modules are drop-in for swap-into-crossover.sh and the Patcher app.
+          NT="$D/dlls/ntdll/ntdll.so"
+          if ! otool -l "$NT" | grep -A2 LC_RPATH | grep -q lib64; then
+            install_name_tool -add_rpath "@loader_path/../../../lib64" "$NT"
+          fi
+          for f in "$NT" \
+                   "$D/dlls/kernel32/x86_64-windows/kernel32.dll" \
+                   "$D/dlls/ntoskrnl.exe/x86_64-windows/ntoskrnl.exe"; do
+            codesign --force --sign - "$f"
+          done
+
+          echo "== file:"
+          file "$NT" "$D/dlls/kernel32/x86_64-windows/kernel32.dll" "$D/dlls/ntoskrnl.exe/x86_64-windows/ntoskrnl.exe"
+          echo "== ntdll.so LC_RPATH:"
+          otool -l "$NT" | grep -A2 LC_RPATH
+          echo "== codesign:"
+          for f in "$NT" \
+                   "$D/dlls/kernel32/x86_64-windows/kernel32.dll" \
+                   "$D/dlls/ntoskrnl.exe/x86_64-windows/ntoskrnl.exe"; do
+            codesign --verify "$f" && echo "  ok $(basename "$f")"
+          done
+
+          # reproducibility notes for the artifact
+          {
+            echo "CrossOver source:  ${{ env.CX_VER }}"
+            echo "Repo commit:       ${{ github.sha }}"
+            echo "Runner image:      ${{ inputs.runner || 'xcode-27' }}"
+            echo "Built on:          $(sw_vers -productName) $(sw_vers -productVersion), $(xcodebuild -version 2>/dev/null | tr '\n' ' ')"
+            echo "Clang:             $(/usr/bin/clang --version | head -1)"
+            echo "Host arch:         $(uname -m) (x86_64 output built under Rosetta)"
+            echo "Patches applied:   $(find patches/stage2-dwproton/em-backports patches/stage2-dwproton/misc patches/stage1-macos -name '*.patch' | wc -l | tr -d ' ')"
+            echo "Provenance:        https://github.com/stoicswe/Endfield_FineWine/tree/${{ github.sha }}"
+          } > "$D/BUILD-INFO.txt"
+
+          ( cd "$D" && shasum -a 256 \
+              dlls/ntdll/ntdll.so \
+              dlls/kernel32/x86_64-windows/kernel32.dll \
+              dlls/ntoskrnl.exe/x86_64-windows/ntoskrnl.exe | tee SHA256SUMS )
+
+      - name: Smoke-test the x86_64 loader under Rosetta (informational)
+        shell: bash
+        run: |
+          L="${{ github.workspace }}/build/wine-build64/loader/wine64"
+          if [ -x "$L" ]; then
+            arch -x86_64 "$L" --version && echo "info: loader runs under Rosetta" \
+              || echo "warning: wine64 --version failed — informational only"
+          else
+            echo "warning: no $L — smoke test skipped"
+          fi
+
+      - name: Package modules zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ditto -c -k dist/wine-modules "dist/finewine-wine-modules-${{ env.CX_VER }}-${{ env.SHORT_SHA }}.zip"
+          ls -lh dist
+
+      - name: Upload wine modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine-modules
+          path: dist/finewine-wine-modules-${{ env.CX_VER }}-${{ env.SHORT_SHA }}.zip
+          retention-days: 14
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Patched Wine build
+
+          | | |
+          |---|---|
+          | CrossOver source | ${{ env.CX_VER }} |
+          | Runner | ${{ inputs.runner || 'xcode-27' }} |
+          | Commit | `${{ github.sha }}` |
+          | Artifact | `wine-modules` — finewine-wine-modules-${{ env.CX_VER }}-${{ env.SHORT_SHA }}.zip |
+          EOF
+          echo "_The bundled modules are Wine (LGPL-2.1-or-later) — see \`patcher-app/README.md\` for the source offer / redistribution notes._" >> "$GITHUB_STEP_SUMMARY"
+
+  patcher-app:
+    name: FineWine Patcher.app
+    needs: build-wine
+    if: ${{ inputs.build_patcher_app != false && needs.build-wine.result == 'success' }}
+    runs-on: ${{ inputs.runner || 'xcode-27' }}
+    timeout-minutes: 30
+    env:
+      CX_VER: ${{ inputs.cx_version || '26.2.0' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Short SHA
+        run: echo "SHORT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
+
+      - name: Download wine modules artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wine-modules
+          path: payload-dl
+
+      - name: Unzip modules into a payload tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p payload
+          ditto -x -k payload-dl/*.zip payload/
+          find payload -type f | sort
+
+      - name: Build FineWine Patcher.app
+        shell: bash
+        env:
+          PAYLOAD_DIR: ${{ github.workspace }}/payload
+        run: ./patcher-app/scripts/build-app.sh
+
+      - name: Package Patcher.app zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          APP="patcher-app/build/FineWine Patcher.app"
+          codesign --verify "$APP"
+          ditto -c -k --keepParent "$APP" "dist/finewine-patcher-${{ env.CX_VER }}-${{ env.SHORT_SHA }}.zip"
+          ls -lh dist
+
+      - name: Upload Patcher app
+        uses: actions/upload-artifact@v4
+        with:
+          name: patcher-app
+          path: dist/finewine-patcher-${{ env.CX_VER }}-${{ env.SHORT_SHA }}.zip
+          retention-days: 14
+
+      - name: Write job summary
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## FineWine Patcher.app
+
+          | | |
+          |---|---|
+          | CrossOver source | ${{ env.CX_VER }} |
+          | Artifact | `patcher-app` — finewine-patcher-${{ env.CX_VER }}-${{ env.SHORT_SHA }}.zip |
+          | Signing | ad-hoc (right-click → Open on first launch) |
+          EOF
+
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          > ⚠️ **LGPL-2.1-or-later**: the app bundles Wine modules. If you publish releases
+          > from these artifacts, attach the exact `crossover-sources-${{ env.CX_VER }}` tarball +
+          > this repo's patches (see `patcher-app/README.md`).
+          EOF

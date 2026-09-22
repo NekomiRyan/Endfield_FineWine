@@ -79,7 +79,7 @@ cmd_apply() {
     local n=0 f
     for f in $(ls "$P"/stage2-dwproton/em-backports/*.patch | sort) \
              $(ls "$P"/stage2-dwproton/misc/*.patch | sort) \
-             "$P"/stage1-macos/0000-*.patch "$P"/stage1-macos/0001-*.patch; do
+             $(ls "$P"/stage1-macos/*.patch | sort); do
       if git apply "$f"; then n=$((n+1)); else echo "FAILED to apply: $f"; exit 1; fi
     done
     echo "applied $n patches cleanly" )
@@ -113,7 +113,7 @@ cmd_configure() {
     export LDFLAGS="${LDFLAGS:+$LDFLAGS }-arch x86_64"
     echo "host arch: $(uname -m); bison: $(bison --version 2>/dev/null | head -1 || echo 'none')"
     cd "'"$WINE_BUILD"'"
-    CC=clang CXX=clang++ "'"$WINE_SRC"'/configure" --enable-archs=x86_64 --disable-tests --without-x \
+    CC="${CC:-clang}" CXX="${CXX:-clang++}" "'"$WINE_SRC"'/configure" --enable-archs=x86_64 --disable-tests --without-x \
       --without-freetype --without-gnutls --without-sdl --without-vulkan --without-krb5 \
       --without-gstreamer --without-gphoto --without-sane --without-pcap --without-usb \
       --without-cups --without-openal --without-coreaudio

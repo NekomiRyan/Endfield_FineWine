@@ -6,8 +6,10 @@ Helper scripts for the capture → build → swap → test loop.
 |---|---|---|---|
 | `01-capture-failure.sh` | diagnose | Launch Endfield via CrossOver with `CX_LOG` + `--wait-children`, collect logs + crash reports, auto-classify the failure (now recognizes the stage-1 protector loop). | ✅ working |
 | `fetch-dwproton-patches.sh` | 2 | Pull the Endfield-relevant dw-proton patch set into `../patches/stage2-dwproton/`. | ✅ working |
-| `build-wine.sh` | build | Build a **64-bit-only** CrossOver 26.2 Wine from source (standard toolchain, no `win32on64`/`cx-llvm`). `deps\|fetch\|configure\|build\|all`. | ⚙️ scaffold — needs first-run iteration (milestone 4) |
-| `swap-into-crossover.sh` | build | Place the built Wine into a `CrossOver_patched.app`, keep `apple_gpt`, ad-hoc re-sign, de-quarantine. | ⚙️ scaffold — verify file mapping on first build |
+| `build-wine.sh` | build | Build a **64-bit-only** CrossOver 26.2 Wine from source (standard toolchain, no `win32on64`/`cx-llvm`). `deps\|fetch\|apply\|configure\|build\|all`. | ✅ working |
+| `swap-into-crossover.sh` | build | Build `CrossOver_Endfield_Patch.app` from `CrossOver.app`: swap in the 3 patched modules (+ optional GPTK4 D3DMetal / MoltenVK), re-seal, verify. | ✅ working |
+| `create-bottle.sh` | setup | Create the `Arknights Endfield` bottle (Windows 11 64-bit, D3DMetal + DLSS + MSync), or re-apply those settings with `UPDATE=1`. | ✅ working |
+| `launch-endfield.sh` | play | Launch `Endfield.exe` directly through the patched app (adds `-force-d3d11`); optional Wine logging via `DEBUG=`. | ✅ working |
 
 ## The loop
 ```

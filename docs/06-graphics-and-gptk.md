@@ -48,7 +48,16 @@ The research's "D3DMetal is the only D3D12-capable path" was **REFUTED**. `vkd3d
 CrossOver 26's Advanced Settings expose **five per-bottle backends**: `Auto | DXMT | D3DMetal | DXVK | Wine (wined3d)`. `[confidence: high — CONFIRMED]`
 - Enabling D3DMetal or DXVK applies to **all apps in the bottle**.
 - Extra toggles: **DLSS-powered-by-MetalFX** (D3DMetal + DXMT only), **MSync** (Mach-semaphore sync), **High Resolution Mode** (192 DPI, disables pixel doubling).
-- ⚠️ The `cxbottle.conf` variable names `WINED3DMETAL` / `WINEDXVK` (0/1) are **not documented** in CodeWeavers' GUI-only settings doc — treat the exact key names/syntax as **unverified**. No `WINEDXMT`-style key was confirmed. Set backends via the GUI, or reverse-engineer the conf keys empirically.
+- **The `cxbottle.conf` keys (verified 2026-09 against CrossOver 26.2.0).** The GUI stores all of these in the bottle's `[EnvironmentVariables]` section (`~/Library/Application Support/CrossOver/Bottles/<bottle>/cxbottle.conf`), and [`scripts/create-bottle.sh`](../scripts/create-bottle.sh) writes them for you:
+
+  | GUI setting | Key | Values |
+  |---|---|---|
+  | Graphics | `CX_GRAPHICS_BACKEND` | `d3dmetal`, `dxmt`, `dxvk`, `wined3d`; key absent = **Auto** |
+  | DLSS (D3DMetal) | `D3DM_ENABLE_METALFX` | `1` |
+  | DLSS (DXMT) | `DXMT_ENABLE_NVEXT` | `1` |
+  | MSync | `WINEMSYNC` | `1` |
+
+  Sources: the GUI's settings code (`lib/python/bottlewrapper.pyc`) and `lib/wine/x86_64-unix/cxcompatdb.so`, which applies the backend per process and logs `set_graphics_backend using <backend> as the graphics backend` (visible with `--debugmsg +process`). The older `WINED3DMETAL=1` / `WINEDXVK=1` / `WINEESYNC=1` keys are legacy: the bottle templates' `upgrade_graphics_settings()` (`share/crossover/bottle_templates/*/CXBT_*.pm`) migrates them to `CX_GRAPHICS_BACKEND` / `WINEMSYNC`. `ROSETTA_ADVERTISE_AVX` needs no key — CrossOver's `bin/wine` wrapper sets it to `1` unless you set it to `0`.
 
 ## CrossOver 26 graphics stack (for reference)
 ```
@@ -59,7 +68,7 @@ Wine 11.0 · Wine Mono 10.4.1 · vkd3d 1.18 (D3D12→Vulkan) · DXMT v0.72 · D3
 - Which CrossOver/Whisky version, if any, bundles **D3DMetal 4 / GPTK4** (only D3DMetal 3.0 confirmed bundled as of CrossOver 26). How to manually integrate GPTK4 into a custom bundle.
 - For Endfield's game process once ACE is bypassed: which backend (D3DMetal DX12 vs forced-DX11 via DXMT/DXVK vs Vulkan/MoltenVK) actually yields a playable result.
 - Whether Endfield's Vulkan default runs under CrossOver via MoltenVK, or whether forcing DX11/DX12 is mandatory.
-- Exact `cxbottle.conf` backend-selection syntax.
+- ~~Exact `cxbottle.conf` backend-selection syntax.~~ **Answered (2026-09):** `CX_GRAPHICS_BACKEND` & co. — see [Selecting a backend](#selecting-a-backend-in-crossover-26).
 
 ## Primary sources
 - Apple GPTK — <https://developer.apple.com/games/game-porting-toolkit/> · AppleGamingWiki — <https://www.applegamingwiki.com/wiki/Game_Porting_Toolkit>

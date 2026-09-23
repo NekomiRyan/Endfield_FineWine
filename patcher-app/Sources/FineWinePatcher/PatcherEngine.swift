@@ -99,8 +99,9 @@ final class PatcherEngine: ObservableObject {
     private static let stepLabels = [
         "Copying CrossOver",
         "Installing the patched Wine modules",
-        "Removing the bundle seal & quarantine",
+        "Re-sealing the bundle",
         "Verifying",
+        "Moving the patched app into place",
     ]
 
     func reset() {
@@ -128,22 +129,31 @@ final class PatcherEngine: ObservableObject {
             func finish(_ index: Int) async {
                 await MainActor.run { self.steps[index].status = .done }
             }
+            var staged: URL?
+            defer {
+                if let staged { try? FileManager.default.removeItem(at: staged.deletingLastPathComponent()) }
+            }
             do {
                 await begin(0)
-                try Self.copyBundle(from: source, to: destination)
+                let app = try Self.copyBundle(from: source, to: destination)
+                staged = app
                 await finish(0)
 
                 await begin(1)
-                try Self.installModules(into: destination, from: payloadDir)
+                try Self.installModules(into: app, from: payloadDir)
                 await finish(1)
 
                 await begin(2)
-                Self.stripSealAndQuarantine(destination)
+                try Self.resealBundle(app)
                 await finish(2)
 
                 await begin(3)
-                try Self.verify(destination, payloadDir: payloadDir)
+                try Self.verify(app, payloadDir: payloadDir)
                 await finish(3)
+
+                await begin(4)
+                try Self.moveIntoPlace(app, destination: destination)
+                await finish(4)
 
                 await MainActor.run {
                     self.patchedApp = destination
@@ -166,7 +176,10 @@ final class PatcherEngine: ObservableObject {
         app.appendingPathComponent("Contents/SharedSupport/CrossOver", isDirectory: true)
     }
 
-    private nonisolated static func copyBundle(from source: URL, to destination: URL) throws {
+    /// Copies CrossOver into a fresh staging folder on the destination's volume and returns the
+    /// staged app. It is patched and sealed there and only moved to `destination` once it
+    /// verifies, so a half-patched bundle never sits in /Applications.
+    private nonisolated static func copyBundle(from source: URL, to destination: URL) throws -> URL {
         let fm = FileManager.default
         let src = source.standardizedFileURL
         let dst = destination.standardizedFileURL
@@ -179,12 +192,19 @@ final class PatcherEngine: ObservableObject {
         guard !dst.path.hasPrefix(src.path + "/"), !src.path.hasPrefix(dst.path + "/") else {
             throw PatchError("The destination cannot be inside the original CrossOver.app (or vice versa).")
         }
-        if fm.fileExists(atPath: dst.path) {
-            try fm.removeItem(at: dst)
+        let staging = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                 appropriateFor: dst.deletingLastPathComponent(), create: true)
+        let staged = staging.appendingPathComponent(dst.lastPathComponent, isDirectory: true)
+        // ditto preserves symlinks and permissions, like scripts/swap-into-crossover.sh. Extended
+        // attributes are left behind: Finder/iCloud/quarantine xattrs on the source would make
+        // codesign refuse to re-seal the copy. The bundle is ~a few GB; this is the slow step.
+        do {
+            try run("/usr/bin/ditto", ["--noextattr", "--noqtn", src.path, staged.path])
+        } catch {
+            try? fm.removeItem(at: staging)
+            throw error
         }
-        // /bin/cp -a preserves symlinks, permissions and metadata — same as
-        // scripts/swap-into-crossover.sh. The bundle is ~a few GB; this is the slow step.
-        try run("/bin/cp", ["-a", src.path, dst.path])
+        return staged
     }
 
     private nonisolated static func installModules(into app: URL, from payloadDir: URL) throws {
@@ -199,25 +219,57 @@ final class PatcherEngine: ObservableObject {
             guard fm.fileExists(atPath: dst.path) else {
                 throw PatchError("\(module.crossoverSubpath) not found in the copied app — is this really CrossOver \(CrossOverInfo.expectedVersion)?")
             }
-            // Keep a backup of the stock module under the same name the shell script uses.
+            // Move the stock module aside under the same backup name the shell script uses, so
+            // the payload lands as a fresh file rather than overwriting a signed one in place.
             let backup = dst.appendingPathExtension("cxorig")
-            if !fm.fileExists(atPath: backup.path) {
-                try fm.copyItem(at: dst, to: backup)
+            if fm.fileExists(atPath: backup.path) {
+                try fm.removeItem(at: dst)
+            } else {
+                try fm.moveItem(at: dst, to: backup)
             }
-            try fm.removeItem(at: dst)
             try fm.copyItem(at: src, to: dst)
-            // Ad-hoc signature so the modified file loads on Apple Silicon. For the
-            // PE modules codesign stores it in xattrs; harmless and matches the script.
-            try run("/usr/bin/codesign", ["--force", "--sign", "-", dst.path])
+            // Only the Mach-O (ntdll.so) needs a signature of its own to load on Apple Silicon.
+            // The PE modules are covered by the bundle seal, as in stock CrossOver.
+            if dst.pathExtension == "so" {
+                try run("/usr/bin/codesign", ["--force", "--sign", "-", dst.path])
+            }
         }
     }
 
-    private nonisolated static func stripSealAndQuarantine(_ app: URL) {
-        let fm = FileManager.default
-        for sub in ["Contents/_CodeSignature", "Contents/CodeResources"] {
-            try? fm.removeItem(at: app.appendingPathComponent(sub))
-        }
+    /// Re-seals the bundle with an ad-hoc signature. Deleting the seal is not enough: a copy
+    /// made by a downloaded app (like this one) carries com.apple.provenance, so macOS checks
+    /// the bundle's signature at first launch and kills every binary in a bundle whose seal is
+    /// missing ("…is damaged and can't be opened"). Only the outer bundle is re-signed: the
+    /// nested CodeWeavers binaries keep their signatures (wineloader/wineserver already carry
+    /// disable-library-validation, so they load the ad-hoc ntdll.so), and the main executable
+    /// keeps its entitlements but not the hardened runtime, whose library validation would
+    /// reject the CodeWeavers-signed frameworks under an ad-hoc signature.
+    private nonisolated static func resealBundle(_ app: URL) throws {
         _ = try? run("/usr/bin/xattr", ["-drs", "com.apple.quarantine", app.path])
+        // codesign refuses to seal "detritus", and even ditto leaves FinderInfo on the bundle folder.
+        _ = try? run("/usr/bin/xattr", ["-rd", "com.apple.FinderInfo", app.path])
+        _ = try? run("/usr/bin/xattr", ["-rd", "com.apple.ResourceFork", app.path])
+        try run("/usr/bin/codesign", ["--force", "--sign", "-", "--preserve-metadata=entitlements",
+                                      "--timestamp=none", app.path])
+    }
+
+    /// Replaces `destination` with the verified staged app.
+    private nonisolated static func moveIntoPlace(_ staged: URL, destination: URL) throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: destination.path) {
+            do {
+                try fm.removeItem(at: destination)
+            } catch {
+                // App Management can refuse to delete an app that has been launched, but
+                // moving it to the Trash is still allowed.
+                do {
+                    try fm.trashItem(at: destination, resultingItemURL: nil)
+                } catch {
+                    throw PatchError("Couldn't replace the existing \(destination.lastPathComponent) — move it to the Trash and patch again.")
+                }
+            }
+        }
+        try fm.moveItem(at: staged, to: destination)
     }
 
     private nonisolated static func verify(_ app: URL, payloadDir: URL) throws {
@@ -239,6 +291,12 @@ final class PatcherEngine: ObservableObject {
         guard let needle = Payload.requiredNtdllRpath.data(using: .utf8),
               data.range(of: needle) != nil else {
             throw PatchError("ntdll.so is missing the lib64 rpath — D3DMetal would not work. Rebuild the patcher with scripts/build-app.sh (it adds the rpath to the payload).")
+        }
+        // The whole bundle must verify, or macOS reports it as damaged and kills its binaries.
+        do {
+            try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
+        } catch {
+            throw PatchError("The patched app's signature does not verify, so macOS would refuse to run it. \(error.localizedDescription)")
         }
     }
 

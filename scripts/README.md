@@ -20,4 +20,4 @@ Helper scripts for the capture → build → swap → test loop.
 5. apply a stage-1 experiment (docs/12), rebuild, re-swap, re-capture, compare 0x6CD268 behavior
 ```
 
-⚠️ `build-wine.sh` / `swap-into-crossover.sh` are milestone-4 scaffolds: the CrossOver-26.2 configure flags and the raw-build→bundle file mapping are **not yet verified on a real build**. First real run will need iteration — that's expected and is milestone 4 in [../docs/09-implementation-roadmap.md](../docs/09-implementation-roadmap.md).
+`build-wine.sh` / `swap-into-crossover.sh` are verified working on the reference setup (Apple M4 Pro, macOS 27.0, CrossOver 26.2.0 — the full story is [../docs/13-working-solution.md](../docs/13-working-solution.md)). On other macOS/CrossOver versions expect some iteration; the loop above is how to debug it. How to use these scripts as a user: [../docs/installation.md](../docs/installation.md).

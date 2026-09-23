@@ -1,5 +1,7 @@
 # 09 — Implementation roadmap (the plan of record)
 
+> ⚠️ **Historical document.** This was the plan of record during the research phase; milestones 0–1 are done ([10](10-milestone-1-results.md)) and the two-stage plan it forked into has been **completed** — see [13-working-solution.md](13-working-solution.md). Kept as the record of how the project was de-risked.
+
 > This is the ordered, de-risking plan. Each milestone is a **gate**: it produces evidence that decides whether the next (more expensive) milestone is worth starting.
 
 ## ⚡ Where we are now (2026-07-14) — the plan has forked into two stages

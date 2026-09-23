@@ -24,7 +24,7 @@ Contributing is simple. Here's how you can do it:
 1. **Identify an Issue**: Look for existing [Issues](https://github.com/stoicswe/Endfield_FineWine/issues) or create your own explaining the feature or fix.
 2. **Fork the Repository**: Click on the fork button in the top right corner.
 3. **Clone the Repository**: After forking, clone the repo to your local machine to make changes.
-4. **Set up Your Environment**: Set up the repository by following the instructions in the setup section of the [README.md](README.md).
+4. **Set up Your Environment**: Set up the repository by following the Quick Start section of the [README.md](README.md).
 5. **Create a New Branch**: Before making any changes, switch to a new branch:
     ```bash
     # For bugs:

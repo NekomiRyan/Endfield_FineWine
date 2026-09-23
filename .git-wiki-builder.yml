@@ -1,0 +1,18 @@
+# Configuration for git-wiki-builder (https://github.com/MakerCorn/git-wiki-builder)
+#
+# Overrides the default wiki structure (Home / Getting Started / User Guide /
+# API Reference / Development / Deployment / FAQ / Changelog) with one that fits
+# this project. The generator reads README.md and every docs/**/*.md file as its
+# source material; the entries below define the wiki sections and page names.
+# This workflow runs on every push that touches README.md, docs/** or *.md
+# (see .github/workflows/update-wiki.yml).
+wiki_structure:
+  "Home": ["overview", "quick_start"]
+  "Getting Started": ["requirements", "installation", "bottle_and_game_install", "running_the_game"]
+  "User Guide": ["graphics_and_performance", "gptk4_upgrade", "performance_on_16gb_macs"]
+  "How It Works": ["the_working_solution", "rosetta_signal_fixes", "dwproton_ace_patches", "patch_and_script_reference"]
+  "Engineering Reference": ["crossover_wine_architecture", "building_crossover_wine", "swapping_into_crossover", "graphics_backends", "spoofing_and_detection"]
+  "Troubleshooting": ["troubleshooting", "known_issues"]
+  "Development": ["contributing", "development_setup"]
+  "Project History": ["executive_summary", "milestone_1_results", "linux_vs_macos_comparison", "stage1_protector_fault", "risks_and_roadmap"]
+  "References": ["source_references"]

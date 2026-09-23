@@ -1,5 +1,7 @@
 # 12 — Stage 1: the `EndfieldBase.dll` protector fault (the critical path)
 
+> ⚠️ **Solved — kept as the investigation record.** The fault is fixed by the `0F 1F` NOP-skip in [patches/stage1-macos/](../patches/stage1-macos/); the outcome and final patch set are in [13-working-solution.md](13-working-solution.md). Read on for how the root cause was found.
+
 > The macOS-specific blocker that must be cracked before dw-proton (stage 2) matters. Background: [10](10-milestone-1-results.md) (capture), [11](11-linux-vs-macos-comparison.md) (Linux vs macOS). **Updated 2026-07-14 with a prior-art hunt + Wine-source analysis — the mechanism is now understood and there is a concrete #1 experiment.**
 
 ## ✅ SOLVED (2026-07-14): Rosetta rejects a plain NOP; skip it

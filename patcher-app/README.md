@@ -16,7 +16,7 @@ A minimal macOS app that turns a copy of **CrossOver 26.2** into the patched bui
 5. Moves the patched app into place; an existing copy macOS won't let it delete goes to the Trash.
 
 Out of scope by design: the optional GPTK4 / MoltenVK graphics upgrades (Apple's GPTK may not
-be redistributed) — see the [main README](../README.md#graphics--performance-gptk4) for those.
+be redistributed) — see [docs/graphics-performance.md](../docs/graphics-performance.md) for those.
 
 **End users need no developer tools** — the `lib64` rpath is baked into the payload at app-build
 time, so at patch time the app only uses `codesign`, `ditto` and `xattr`, which ship with macOS.

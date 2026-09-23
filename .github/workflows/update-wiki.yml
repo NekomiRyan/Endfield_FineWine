@@ -90,7 +90,14 @@ jobs:
       - name: Generate and publish wiki
         run: python .github/scripts/generate-wiki.py
         env:
-          # Publishing (clone/push <repo>.wiki.git):
+          # Publishing (clone/push <repo>.wiki.git). The Actions GITHUB_TOKEN
+          # CANNOT push to the wiki repo (GitHub platform rule) — set a
+          # WIKI_TOKEN repo secret with a classic PAT (scope `repo`) or
+          # fine-grained PAT (Contents: read and write); the wrapper prefers it
+          # and falls back to GITHUB_TOKEN otherwise. Wiki must also be enabled
+          # (Settings -> General -> Features -> Wikis) and initialized with one
+          # stub page before the first push.
+          WIKI_TOKEN: ${{ secrets.WIKI_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           # AI generation: GitHub Models was retired 2026-07-30, so the "openai"

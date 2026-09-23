@@ -180,8 +180,9 @@ cat <<EOF
 Done -> $DEST_APP
 
 Next:
-  1. Open $DEST_APP, create a fresh Windows 11 64-bit bottle, install the Gryphline launcher + Endfield.
-  2. IMPORTANT: in the launcher's graphics settings choose **DirectX 11**.
+  1. First time only: create the bottle with scripts/create-bottle.sh, then install the Gryphline
+     launcher into it and let it download Endfield (README → "Before the first launch").
+  2. Start the game from the launcher with the dropdown next to Start → "Launch with DirectX 11".
      Vulkan and DX12 do NOT work under CrossOver 26.2 for this game (white screen).
-  3. Launch. See docs/13-working-solution.md for troubleshooting.
+  3. See docs/13-working-solution.md for troubleshooting.
 EOF

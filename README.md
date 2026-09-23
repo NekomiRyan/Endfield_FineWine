@@ -132,6 +132,14 @@ Why re-seal instead of stripping the seal: [docs/05 → Verified recipe](docs/05
 | `lib/wine/x86_64-windows/kernel32.dll` | the `KiUser*Dispatcher` int3 spoof |
 | `lib/wine/x86_64-windows/ntoskrnl.exe` | the 17 `ntoskrnl.exe` em-backports |
 
+### Before the first launch: create the bottle and install the game
+
+```bash
+./scripts/create-bottle.sh    # "Arknights Endfield": Windows 11 64-bit, D3DMetal + DLSS + MSync
+```
+
+Then install the Gryphline launcher into it: download the Windows launcher from [endfield.gryphline.com](https://endfield.gryphline.com), use CrossOver → **Arknights Endfield** → *Install Application into Bottle* (or `/Applications/CrossOver_Endfield_Patch.app/Contents/SharedSupport/CrossOver/bin/wine --bottle "Arknights Endfield" --wait-children ~/Downloads/GRYPHLINK_<version>.exe`), keep the default install location, log in, and let the launcher download the game. Prefer the GUI for the bottle too? Create a *Windows 11 64-bit* bottle named `Arknights Endfield` and set Graphics → D3DMetal, DLSS → on, MSync → on. `UPDATE=1 ./scripts/create-bottle.sh` re-applies the settings to an existing bottle.
+
 ### 4. Run the game
 
 Point the **patched** CrossOver at your existing Endfield bottle:
@@ -166,7 +174,7 @@ CrossOver → select the **Arknights Endfield** bottle → **Advanced Settings �
 - **DXMT** — good for DirectX 11 titles; also supports the DLSS/MetalFX toggle.
 - **DXVK** — DirectX 10/11 → Vulkan → MoltenVK (fallback; extra hop, no DLSS).
 
-Also enable **DLSS (MetalFX)** and **MSync**, and set `ROSETTA_ADVERTISE_AVX=1` in the bottle's environment for AVX2 (that comes from Rosetta 2 on macOS 15+, not from GPTK).
+Also enable **DLSS (MetalFX)** and **MSync** — or let [`scripts/create-bottle.sh`](scripts/create-bottle.sh) set the backend and both toggles (the `cxbottle.conf` keys are listed in [docs/06](docs/06-graphics-and-gptk.md#selecting-a-backend-in-crossover-26)). AVX2 (from Rosetta 2 on macOS 15+, not from GPTK) needs no setting: CrossOver's `wine` wrapper already exports `ROSETTA_ADVERTISE_AVX=1`.
 
 ### Installing GPTK4
 

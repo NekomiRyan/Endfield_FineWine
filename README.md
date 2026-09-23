@@ -25,7 +25,7 @@ Use the latest available release patcher found on the [releases page](https://gi
 | **Rosetta 2** | required: `softwareupdate --install-rosetta --agree-to-license` |
 | **CrossOver** | **26.2**, licensed, from [codeweavers.com](https://www.codeweavers.com/crossover) |
 | **Xcode CLT / Homebrew** | `xcode-select --install` · [brew.sh](https://brew.sh) |
-| **Disk / time** | ~5 GB for the build tree; build ~20–60 min |
+| **Disk / time** | ~5 GB for the build tree; build ~10 min on a 10-core M4, longer on fewer cores (1.5–2.5 h cold on the 3-vCPU CI runner) |
 
 
 #### Cloning and Building Locally

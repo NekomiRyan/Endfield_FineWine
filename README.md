@@ -91,7 +91,7 @@ Notes:
 ./scripts/swap-into-crossover.sh
 ```
 
-This copies `/Applications/CrossOver.app` → `/Applications/CrossOver_Endfield_Patch.app`, swaps in the 3 patched modules, ad-hoc-signs them, strips the bundle seal, and removes quarantine. Then run the game through `CrossOver_Endfield_Patch.app` (§4).
+This copies `/Applications/CrossOver.app` into a staging folder, swaps in the 3 patched modules (plus GPTK4's D3DMetal if `GPTK_DIR` points at it), re-seals the whole bundle with an ad-hoc signature, verifies it, and moves it into place as `/Applications/CrossOver_Endfield_Patch.app`. Then run the game through `CrossOver_Endfield_Patch.app` (§4).
 
 ### 3. Deploy into CrossOver — manual
 
@@ -99,27 +99,32 @@ If you prefer to do it by hand (e.g. to understand or audit it):
 
 ```bash
 # Copy CrossOver (must be 26.2) so the original stays intact
-cp -a /Applications/CrossOver.app "/Applications/CrossOver_Endfield_Patch.app"
-CXR="/Applications/CrossOver_Endfield_Patch.app/Contents/SharedSupport/CrossOver"
+APP="/Applications/CrossOver_Endfield_Patch.app"
+ditto --noextattr --noqtn /Applications/CrossOver.app "$APP"
+CXR="$APP/Contents/SharedSupport/CrossOver"
 B="$PWD/build/wine-build64"
 
-# Swap the 3 patched modules (back up the originals first)
-cp "$CXR/lib/wine/x86_64-unix/ntdll.so"        "$CXR/lib/wine/x86_64-unix/ntdll.so.orig"
-cp "$CXR/lib/wine/x86_64-windows/kernel32.dll" "$CXR/lib/wine/x86_64-windows/kernel32.dll.orig"
-cp "$CXR/lib/wine/x86_64-windows/ntoskrnl.exe" "$CXR/lib/wine/x86_64-windows/ntoskrnl.exe.orig"
-
+# Swap the 3 patched modules (move the originals aside as backups)
+for f in x86_64-unix/ntdll.so x86_64-windows/kernel32.dll x86_64-windows/ntoskrnl.exe; do
+  mv "$CXR/lib/wine/$f" "$CXR/lib/wine/$f.cxorig"
+done
 cp "$B/dlls/ntdll/ntdll.so"                           "$CXR/lib/wine/x86_64-unix/ntdll.so"
 cp "$B/dlls/kernel32/x86_64-windows/kernel32.dll"     "$CXR/lib/wine/x86_64-windows/kernel32.dll"
 cp "$B/dlls/ntoskrnl.exe/x86_64-windows/ntoskrnl.exe" "$CXR/lib/wine/x86_64-windows/ntoskrnl.exe"
 
-# Ad-hoc sign the swapped files, drop the bundle seal + quarantine so they load
-for f in x86_64-unix/ntdll.so x86_64-windows/kernel32.dll x86_64-windows/ntoskrnl.exe; do
-  codesign --force --sign - "$CXR/lib/wine/$f"
-done
-rm -rf "/Applications/CrossOver_Endfield_Patch.app/Contents/_CodeSignature" \
-       "/Applications/CrossOver_Endfield_Patch.app/Contents/CodeResources"
-xattr -drs com.apple.quarantine "/Applications/CrossOver_Endfield_Patch.app"
+# ntdll.so needs CrossOver's lib64 rpath (cxcompatdb -> gnutls -> D3DMetal), then an ad-hoc signature
+install_name_tool -add_rpath "@loader_path/../../../lib64" "$CXR/lib/wine/x86_64-unix/ntdll.so"
+codesign --force --sign - "$CXR/lib/wine/x86_64-unix/ntdll.so"
+
+# Re-seal the outer bundle ad-hoc (nested CodeWeavers signatures and the app's entitlements are
+# kept) and verify it BEFORE the first launch — a bundle with a broken seal gets flagged as
+# "damaged" and every binary in it is killed. Don't just delete the seal.
+xattr -drs com.apple.quarantine "$APP"; xattr -rd com.apple.FinderInfo "$APP"
+codesign --force --sign - --preserve-metadata=entitlements "$APP"
+codesign --verify --deep --strict "$APP" && echo "patched app verifies"
 ```
+
+Why re-seal instead of stripping the seal: [docs/05 → Verified recipe](docs/05-swapping-into-crossover.md#verified-recipe-2026-09-crossover-2620--macos-270--m4).
 
 | Patched module | Contains |
 |---|---|
@@ -167,23 +172,35 @@ Also enable **DLSS (MetalFX)** and **MSync**, and set `ROSETTA_ADVERTISE_AVX=1` 
 
 > **Apple's GPTK is evaluation-only software — download it yourself; you may not redistribute it**, so this repo cannot bundle it. These steps target **macOS 27 (beta)** for GPTK4. On **macOS 26**, CrossOver's bundled **D3DMetal 3.0** is the matched version — no action needed.
 
-1. **Download** from Apple: [developer.apple.com/games/game-porting-toolkit](https://developer.apple.com/games/game-porting-toolkit/) → the Downloads list ([search "Game Porting Toolkit"](https://developer.apple.com/download/all/?q=game%20porting%20toolkit)). Sign in with an Apple ID (a free Apple Developer account has historically been enough). Mount the resulting `.dmg` (it appears under `/Volumes/…`; run `ls /Volumes/` to get its exact name).
-2. Apply it to your **patched** CrossOver copy — do this *after* the [module swap](#2-deploy-into-crossover--scripted-recommended) so you keep both the anti-cheat fixes **and** GPTK4:
+1. **Download** from Apple: [developer.apple.com/games/game-porting-toolkit](https://developer.apple.com/games/game-porting-toolkit/) → the Downloads list ([search "Game Porting Toolkit"](https://developer.apple.com/download/all/?q=game%20porting%20toolkit)). Sign in with an Apple ID (a free Apple Developer account has historically been enough). The file you want is **"Evaluation environment for Windows games 4.x"** (listed next to "Game Porting Toolkit 4.x") — its DMG holds the D3DMetal redistributable in `redist/lib/external/`. Mount the `.dmg` (it appears under `/Volumes/…`; run `ls /Volumes/` to get its exact name).
+2. Apply it to your **patched** CrossOver copy, so you keep both the anti-cheat fixes **and** GPTK4.
 
-   **Manual** — replace the two D3DMetal libraries (keep the `-old` backups):
+   **Scripted (recommended)** — point the swap script at the DMG's `redist/lib/external` and it rebuilds the patched app with D3DMetal replaced, Apple's signatures intact, and the bundle re-sealed:
+   ```bash
+   GPTK_DIR="/Volumes/<mounted GPTK volume>/redist/lib/external" ./scripts/swap-into-crossover.sh
+   ```
+   (Copy that folder to `~/Downloads/GPTK_4/redist/lib/external` — the script's default `GPTK_DIR` — and later rebuilds pick it up without the DMG.)
+
+   **Manual** — replace the two D3DMetal libraries (keep the `-old` backups), then re-seal the bundle:
    ```bash
    GPTK_VOL="/Volumes/<mounted GPTK volume — check with: ls /Volumes/>"
-   cd "/Applications/CrossOver_Endfield_Patch.app/Contents/SharedSupport/CrossOver/lib64/apple_gptk/external"
+   APP="/Applications/CrossOver_Endfield_Patch.app"
+   cd "$APP/Contents/SharedSupport/CrossOver/lib64/apple_gptk/external"
    mv D3DMetal.framework D3DMetal.framework-old
    mv libd3dshared.dylib  libd3dshared.dylib-old
-   ditto "$GPTK_VOL/redist/lib/external/" .
+   ditto --noextattr --noqtn "$GPTK_VOL/redist/lib/external/" .
+   cd - >/dev/null
+   xattr -rd com.apple.FinderInfo "$APP"
+   codesign --force --sign - --preserve-metadata=entitlements "$APP"   # editing the app broke its seal
+   codesign --verify --deep --strict "$APP" && echo "patched app verifies"
    ```
-   (The folder is `apple_gptk`, with a trailing **k**. Only the `redist/lib/external/` libraries are needed — ignore the DMG's Homebrew/Wine path, which is for *standalone* GPTK, not CrossOver.)
+   If macOS refuses to modify the app ("Operation not permitted" — App Management protects apps that have been launched), use the scripted path, which builds a fresh copy.
+   (The folder is `apple_gptk`, with a trailing **k**. Only the `redist/lib/external/` libraries are needed — ignore the DMG's Homebrew/Wine path, which is for *standalone* GPTK. Don't copy the DMG's `redist/lib/wine/` DLLs either: CrossOver has its own D3DMetal glue in `apple_gptk/wine/` — with native `.so` halves — and Apple's standalone-Wine DLLs are not interchangeable with it.)
 
    **CXPatcher / Procyon (easier)** — [CXPatcher](https://github.com/italomandara/CXPatcher) drops a GPTK `.dmg`'s D3DMetal into a CrossOver copy automatically (drag CrossOver in, keep "Integrate D3DMetal (GPTK)" on, point it at your GPTK dmg). Its author has moved **GPTK4** support to the successor **[Procyon](https://github.com/italomandara/Procyon)** — use Procyon's pre-release for GPTK4. These tools patch **graphics only**; you still need this project's Wine-module swap for the anti-cheat, so apply **both** to the same CrossOver copy (e.g. run `swap-into-crossover.sh` on the CXPatcher/Procyon output).
 
 ### Caveats
-- **GPTK4 wants macOS 27 (beta)** + Metal 4. On **macOS 26, stay on the bundled D3DMetal 3.0.** Clean GPTK4 integration into **CrossOver 26.2 specifically is unverified** — test it, keep the `-old` backups, be ready to revert; CrossOver 27 / Procyon may be the smoother route.
+- **GPTK4 wants macOS 27 (beta)** + Metal 4. On **macOS 26, stay on the bundled D3DMetal 3.0.** GPTK4 in **CrossOver 26.2**: D3DMetal **4.0b2** ("Evaluation environment for Windows games 4.0 beta 2") installed with `swap-into-crossover.sh` runs Endfield in DX11 mode on an M4 / macOS 27.0 (verified 2026-09-23; 4.0b1 was the original tested config). Keep the `-old` / `external.cxorig` backups and be ready to revert (`SKIP_GPTK=1 ./scripts/swap-into-crossover.sh` rebuilds with the stock 3.0); CrossOver 27 / Procyon may be the smoother route.
 - Apple Silicon only; Rosetta 2 required.
 
 ---
@@ -202,7 +219,7 @@ build/              (gitignored) the Wine source + build output you generate
 ## Troubleshooting
 
 - **"CrossOver.app is version X, expected 26.2"** — the swap needs a matching Wine ABI. Install CrossOver 26.2.
-- **Game won't start / signature errors** — re-run the `codesign --force --sign -` + `xattr -drs com.apple.quarantine` steps; confirm the bundle seal was removed.
+- **"CrossOver_Endfield_Patch is damaged and can't be opened" (over and over) / binaries killed with exit 137** — the patched bundle's signature seal is missing or broken. Click **Cancel** (not *Move to Trash*), then re-run `./scripts/swap-into-crossover.sh`, which re-seals it (it moves an old copy macOS won't let it delete to the Trash). If you edited files inside the patched app by hand, re-seal it: `codesign --force --sign - --preserve-metadata=entitlements /Applications/CrossOver_Endfield_Patch.app`. Details: [docs/05](docs/05-swapping-into-crossover.md#verified-recipe-2026-09-crossover-2620--macos-270--m4).
 - **ACE "driver error 13" comes back** — the patched `ntdll.so`/`ntoskrnl.exe` aren't loading; verify the swap paths and that you launched the *patched* app.
 - **White / blank screen (very common after a game update)** — the game shipped an update that reset its renderer to **Vulkan or DirectX 12**, and neither works well under CrossOver 26.2 (DX12 → `vkd3d` can't compile the game's DXIL/SM6 shaders → `Cannot load DXIL conversion library`; native Vulkan → MoltenVK also fails). **Fix: set the game's rendering API to DirectX 11** — in the Gryphline launcher's / in-game graphics settings pick **DirectX 11** (or launch Unity with `-force-d3d11`). DX11 uses the mature D3DMetal/DXMT path and renders correctly. Do **not** try to fix this by overwriting CrossOver's `d3d11/d3d12/dxgi.dll` with the `apple_gptk` copies — that breaks `unityplayer.dll` init (Windows error **1114**); those D3DMetal DLLs are only meant to be loaded through CrossOver's own backend mechanism.
 - **`unityplayer.dll` "missing or corrupt" (error 1114)** — a DLL-init failure, usually from swapping graphics DLLs (see above) or launching `Endfield.exe` directly without the launcher's working directory. Restore CrossOver's default `d3d11/d3d12/dxgi.dll`, and launch via the Gryphline launcher.

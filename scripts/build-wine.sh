@@ -20,10 +20,10 @@
 #   scripts/build-wine.sh build     # make -j
 #   scripts/build-wine.sh all       # deps -> fetch -> apply -> configure -> build
 #
-# Env: CX_VER (default 26.2.0), BUILD_DIR (default ./build), JOBS (default: all cores)
+# Env: CX_VER (default 26.3.0), BUILD_DIR (default ./build), JOBS (default: all cores)
 
 set -euo pipefail
-CX_VER="${CX_VER:-26.2.0}"
+CX_VER="${CX_VER:-26.3.0}"
 BUILD_DIR="${BUILD_DIR:-$(pwd)/build}"
 JOBS="${JOBS:-$(sysctl -n hw.ncpu)}"
 SRC_URL="https://media.codeweavers.com/pub/crossover/source/crossover-sources-${CX_VER}.tar.gz"

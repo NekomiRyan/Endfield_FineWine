@@ -1,5 +1,19 @@
 # Configuration for git-wiki-builder (https://github.com/MakerCorn/git-wiki-builder)
 #
+# AI backend — GitHub Models is gone. This tool's "github" provider hardcodes the
+# retired https://models.inference.ai.azure.com endpoint, and GitHub Models itself
+# was fully retired on 2026-07-30, so there is no free GitHub-provided model.
+# Instead we use the tool's "openai" provider against OpenRouter's free tier:
+# the workflow (update-wiki.yml) sets OPENAI_BASE_URL=https://openrouter.ai/api/v1
+# and OPENAI_API_KEY from the OPENROUTER_API_KEY repo secret. `model` can be
+# swapped for any other OpenRouter free model (IDs ending in ":free") — pick one
+# with >=64k context: each request ships the README + all docs (~30k tokens).
+ai:
+  provider: openai
+  model: nvidia/nemotron-3-super-120b-a12b:free
+  # other free candidates (verified 2026-09): nvidia/nemotron-3-ultra-550b-a55b:free,
+  # qwen/qwen3.8-27b:free, google/gemma-4-31b-it:free, or the openrouter/free router
+
 # Overrides the default wiki structure (Home / Getting Started / User Guide /
 # API Reference / Development / Deployment / FAQ / Changelog) with one that fits
 # this project. The generator reads README.md and every docs/**/*.md file as its

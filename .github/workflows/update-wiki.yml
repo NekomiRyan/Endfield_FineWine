@@ -43,8 +43,16 @@ jobs:
       - name: Generate and publish wiki
         run: git-wiki-builder
         env:
+          # Publishing (clone/push <repo>.wiki.git):
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # AI generation: GitHub Models was retired 2026-07-30, so the "openai"
+          # provider is pointed at OpenRouter's free tier instead. OPENAI_BASE_URL
+          # is honored because the tool builds its OpenAI client without an
+          # explicit base_url. Create a free key at openrouter.ai and add it as
+          # the OPENROUTER_API_KEY repo secret.
+          OPENAI_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_BASE_URL: https://openrouter.ai/api/v1
 
       - name: Generate wiki preview (for debugging)
         if: failure()

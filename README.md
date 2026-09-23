@@ -142,7 +142,9 @@ Then install the Gryphline launcher into it: download the Windows launcher from 
 
 ### 4. Run the game
 
-Point the **patched** CrossOver at your existing Endfield bottle:
+**From the Gryphline launcher (recommended):** open **`CrossOver_Endfield_Patch`** — not the stock `CrossOver`, whose unpatched Wine fails the anti-cheat — select the **Arknights Endfield** bottle, double-click **GRYPHLINK**, then use the **dropdown next to the Start button → "Launch with DirectX 11"**. That item starts the game with `-force-d3d11`; the plain **Start** button launches the game's default Vulkan renderer, which shows a white screen under CrossOver 26.2.
+
+**Or start `Endfield.exe` directly** (the game has its own login screen; both commands add `-force-d3d11`):
 
 ```bash
 # Easy launcher script (handles wineserver cleanup, graphics args, debug logging):
@@ -151,7 +153,7 @@ Point the **patched** CrossOver at your existing Endfield bottle:
 # Or invoke wine directly:
 CXR="/Applications/CrossOver_Endfield_Patch.app/Contents/SharedSupport/CrossOver"
 "$CXR/bin/wine" --bottle "Arknights Endfield" \
-  --cx-app "C:/Program Files/GRYPHLINK/games/Arknights Endfield/Endfield.exe"
+  --cx-app "C:/Program Files/GRYPHLINK/games/Arknights Endfield/Endfield.exe" -force-d3d11
 ```
 
 Or launch `CrossOver_Endfield_Patch.app` from Finder and start Endfield from its bottle as usual. It should reach the login screen. To capture a debug log, run `DEBUG=light ./scripts/launch-endfield.sh` (Wine errors only — cheap enough to leave on while playing) or `DEBUG=1 ./scripts/launch-endfield.sh` (the full CrossOver log — heavy). Calling `bin/wine` yourself? Pass channels with `--debugmsg` (e.g. `--debugmsg err+all`), not `WINEDEBUG`: CrossOver's wrapper overwrites that variable — with `-all`, or with `CX_LOG` set, with its own heavy default channel list.
@@ -166,7 +168,7 @@ Or launch `CrossOver_Endfield_Patch.app` from Finder and start Endfield from its
 
 ### Pick the graphics backend
 
-> **⚠️ For Endfield specifically: set the game's own renderer to DirectX 11.** Endfield defaults to Vulkan/DX12, and under CrossOver 26.2 those fail (DX12 → `vkd3d` can't compile its DXIL shaders; native Vulkan → MoltenVK also fails) → white screen. Setting the CrossOver *backend* to D3DMetal is **not** enough to reroute the game's DX12 off vkd3d — you must pick **DirectX 11** in the launcher's / in-game graphics settings (or launch with `-force-d3d11`). Game updates can reset this, so re-check it after an update. The generic GPTK4 guidance below applies once the game is on a DirectX path.
+> **⚠️ For Endfield specifically: set the game's own renderer to DirectX 11.** Endfield defaults to Vulkan/DX12, and under CrossOver 26.2 those fail (DX12 → `vkd3d` can't compile its DXIL shaders; native Vulkan → MoltenVK also fails) → white screen. Setting the CrossOver *backend* to D3DMetal is **not** enough to reroute the game's DX12 off vkd3d — the game itself must run in **DirectX 11**: start it with the Gryphline launcher's **Launch with DirectX 11** (in the dropdown next to Start), which passes `-force-d3d11`, or launch `Endfield.exe` with `-force-d3d11` yourself (`launch-endfield.sh` does). The in-game graphics settings have no API option, and the plain Start button uses the default renderer. The generic GPTK4 guidance below applies once the game is on a DirectX path.
 
 CrossOver → select the **Arknights Endfield** bottle → **Advanced Settings → Graphics**:
 
@@ -229,8 +231,13 @@ build/              (gitignored) the Wine source + build output you generate
 - **"CrossOver.app is version X, expected 26.2"** — the swap needs a matching Wine ABI. Install CrossOver 26.2.
 - **"CrossOver_Endfield_Patch is damaged and can't be opened" (over and over) / binaries killed with exit 137** — the patched bundle's signature seal is missing or broken. Click **Cancel** (not *Move to Trash*), then re-run `./scripts/swap-into-crossover.sh`, which re-seals it (it moves an old copy macOS won't let it delete to the Trash). If you edited files inside the patched app by hand, re-seal it: `codesign --force --sign - --preserve-metadata=entitlements /Applications/CrossOver_Endfield_Patch.app`. Details: [docs/05](docs/05-swapping-into-crossover.md#verified-recipe-2026-09-crossover-2620--macos-270--m4).
 - **ACE "driver error 13" comes back** — the patched `ntdll.so`/`ntoskrnl.exe` aren't loading; verify the swap paths and that you launched the *patched* app.
-- **White / blank screen (very common after a game update)** — the game shipped an update that reset its renderer to **Vulkan or DirectX 12**, and neither works well under CrossOver 26.2 (DX12 → `vkd3d` can't compile the game's DXIL/SM6 shaders → `Cannot load DXIL conversion library`; native Vulkan → MoltenVK also fails). **Fix: set the game's rendering API to DirectX 11** — in the Gryphline launcher's / in-game graphics settings pick **DirectX 11** (or launch Unity with `-force-d3d11`). DX11 uses the mature D3DMetal/DXMT path and renders correctly. Do **not** try to fix this by overwriting CrossOver's `d3d11/d3d12/dxgi.dll` with the `apple_gptk` copies — that breaks `unityplayer.dll` init (Windows error **1114**); those D3DMetal DLLs are only meant to be loaded through CrossOver's own backend mechanism.
+- **White / blank screen (very common after a game update)** — the game shipped an update that reset its renderer to **Vulkan or DirectX 12**, and neither works well under CrossOver 26.2 (DX12 → `vkd3d` can't compile the game's DXIL/SM6 shaders → `Cannot load DXIL conversion library`; native Vulkan → MoltenVK also fails). **Fix: run the game in DirectX 11** — start it with the launcher's **Launch with DirectX 11** (dropdown next to the Start button; the plain Start button uses the default renderer), or launch Unity with `-force-d3d11`. DX11 uses the mature D3DMetal/DXMT path and renders correctly. Do **not** try to fix this by overwriting CrossOver's `d3d11/d3d12/dxgi.dll` with the `apple_gptk` copies — that breaks `unityplayer.dll` init (Windows error **1114**); those D3DMetal DLLs are only meant to be loaded through CrossOver's own backend mechanism.
 - **`unityplayer.dll` "missing or corrupt" (error 1114)** — a DLL-init failure, usually from swapping graphics DLLs (see above) or launching `Endfield.exe` directly without the launcher's working directory. Restore CrossOver's default `d3d11/d3d12/dxgi.dll`, and launch via the Gryphline launcher.
+- **GRYPHLINK isn't listed in the bottle** (CrossOver shows only "Uninstall GRYPHLINK") — the launcher's shortcuts weren't registered with CrossOver's menus (seen after installing the launcher from the command line). Re-register them, then reopen the bottle's page: `/Applications/CrossOver_Endfield_Patch.app/Contents/SharedSupport/CrossOver/bin/cxmenu --bottle "Arknights Endfield" --install`.
+- **Start programs from the CrossOver window**, not from the per-program app stubs CrossOver creates in `~/Applications/CrossOver/` (also what Spotlight/Launchpad find). Those stubs' signatures don't verify (`codesign`: "code has no resources but signature indicates they must be present"), so macOS can report them as damaged.
+- **Two copies of the game running** — e.g. a direct `launch-endfield.sh` start plus one from the launcher. They fight over the same files ("The process cannot access the file…" in `Player.log`); quit both and start one.
+- **High Resolution Mode** (the bottle's Advanced Settings) renders a white screen — leave it off ([#2](https://github.com/stoicswe/Endfield_FineWine/issues/2)).
+- **Black screen on later launches** — reported in [#2](https://github.com/stoicswe/Endfield_FineWine/issues/2); the reporter's workaround was to delete the game's registry data (`HKCU\Software\Gryphline\Endfield` and `…\Gryphline\sdk_data\…` — settings and login cache, e.g. via CrossOver → *Run Command* → `regedit`) and log in again. That resets the in-game settings.
 - More detail and the debug-capture script: [scripts/01-capture-failure.sh](scripts/01-capture-failure.sh) and [docs/10](docs/10-milestone-1-results.md).
 
 ---

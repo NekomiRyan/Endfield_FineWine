@@ -40,8 +40,30 @@ jobs:
       - name: Install Git Wiki Builder
         run: pip install git-wiki-builder==0.1.4   # pinned for reproducible wiki output
 
+      # Free OpenRouter models can answer 200 with an error body (upstream
+      # saturation). One cheap request up front shows the raw API response in
+      # the log and fails fast, instead of failing 25 minutes into generation.
+      - name: Preflight — check the AI model answers
+        run: |
+          MODEL=$(python -c "import yaml; print(yaml.safe_load(open('.git-wiki-builder.yml'))['ai']['model'])")
+          echo "Model: $MODEL"
+          curl -sS https://openrouter.ai/api/v1/chat/completions \
+            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"model\": \"$MODEL\", \"max_tokens\": 16, \"messages\": [{\"role\": \"user\", \"content\": \"Reply with exactly: OK\"}]}" \
+            -o /tmp/preflight.json
+          python3 - <<'EOF'
+          import json
+          body = json.load(open("/tmp/preflight.json"))
+          print(json.dumps(body, indent=2)[:1500])
+          if not body.get("choices"):
+              raise SystemExit("AI preflight failed — the model did not return a completion (see response above). Swap `ai.model` in .git-wiki-builder.yml.")
+          EOF
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
       - name: Generate and publish wiki
-        run: git-wiki-builder
+        run: python .github/scripts/generate-wiki.py
         env:
           # Publishing (clone/push <repo>.wiki.git):
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,14 +71,14 @@ jobs:
           # AI generation: GitHub Models was retired 2026-07-30, so the "openai"
           # provider is pointed at OpenRouter's free tier instead. OPENAI_BASE_URL
           # is honored because the tool builds its OpenAI client without an
-          # explicit base_url. Create a free key at openrouter.ai and add it as
-          # the OPENROUTER_API_KEY repo secret.
+          # explicit base_url. The wrapper script also applies our custom wiki
+          # structure (ignored by the tool) and retries flaky free-model calls.
           OPENAI_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENAI_BASE_URL: https://openrouter.ai/api/v1
 
       - name: Generate wiki preview (for debugging)
         if: failure()
-        run: git-wiki-builder --dry-run --output-dir ./wiki-debug --verbose
+        run: python .github/scripts/generate-wiki.py --dry-run --output-dir ./wiki-debug --verbose
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}

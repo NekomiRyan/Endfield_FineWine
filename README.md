@@ -141,7 +141,7 @@ CXR="/Applications/CrossOver_Endfield_Patch.app/Contents/SharedSupport/CrossOver
   --cx-app "C:/Program Files/GRYPHLINK/games/Arknights Endfield/Endfield.exe"
 ```
 
-Or launch `CrossOver_Endfield_Patch.app` from Finder and start Endfield from its bottle as usual. It should reach the login screen. To capture a debug log: prefix with `CX_LOG=/tmp/ef.log WINEDEBUG=+seh`.
+Or launch `CrossOver_Endfield_Patch.app` from Finder and start Endfield from its bottle as usual. It should reach the login screen. To capture a debug log, run `DEBUG=light ./scripts/launch-endfield.sh` (Wine errors only — cheap enough to leave on while playing) or `DEBUG=1 ./scripts/launch-endfield.sh` (the full CrossOver log — heavy). Calling `bin/wine` yourself? Pass channels with `--debugmsg` (e.g. `--debugmsg err+all`), not `WINEDEBUG`: CrossOver's wrapper overwrites that variable — with `-all`, or with `CX_LOG` set, with its own heavy default channel list.
 
 ---
 

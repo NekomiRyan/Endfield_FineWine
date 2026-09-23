@@ -70,7 +70,7 @@ The **dw-proton "workaround for tpshell"** int3 spoof — [patches/stage2-dwprot
 ## Reprioritized experiments (Mac-only, ordered by information/cost)
 
 **E1 — `+relay` trace, NO build (cheap, decisive for the fix hypothesis).**
-Re-run with `WINEDEBUG=+relay,+seh,+virtual` (targeted — relay is huge; filter via `HKCU\Software\Wine\Debug` `RelayInclude`, or accept a large log and grep). Confirm whether tpshell calls `GetProcAddress("KiUserApcDispatcher"/"KiUserCallbackDispatcher")`, and capture the **first** collided unwind's handler `ControlPc` and the value it branches to (is `0x6CD268` computed from the dispatcher readback?). This tells us *before building anything* whether the int3 spoof is even applicable.
+Re-run with `+relay,+seh,+virtual` (e.g. `RELAY=1 WINEDEBUG=+seh,+virtual scripts/01-capture-failure.sh`, or `--debugmsg` on a direct `bin/wine` call — an exported `WINEDEBUG` is overwritten by CrossOver's wrapper). Targeted — relay is huge; filter via `HKCU\Software\Wine\Debug` `RelayInclude`, or accept a large log and grep. Confirm whether tpshell calls `GetProcAddress("KiUserApcDispatcher"/"KiUserCallbackDispatcher")`, and capture the **first** collided unwind's handler `ControlPc` and the value it branches to (is `0x6CD268` computed from the dispatcher readback?). This tells us *before building anything* whether the int3 spoof is even applicable.
 
 **E2 — Build + apply the int3 spoof, test (the #1 fix experiment).**
 Build 64-bit CrossOver Wine ([scripts/build-wine.sh](../scripts/build-wine.sh)), apply `misc/0009+0010`, swap, run Endfield.

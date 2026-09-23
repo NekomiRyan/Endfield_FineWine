@@ -13,7 +13,10 @@
 # Env overrides (all optional):
 #   BOTTLE=<name>     CrossOver bottle name (auto-detected if exactly one exists)
 #   TARGET=<winpath>  Windows path to launch (default: C:/Program Files/GRYPHLINK/Launcher.exe)
-#   WINEDEBUG=<chans> Wine debug channels (default: +loaddll,+seh,+ntoskrnl)
+#   WINEDEBUG=<chans> Wine debug channels (default: +loaddll,+seh,+ntoskrnl). Passed to CrossOver's
+#                     wine with --debugmsg: its wrapper overwrites the WINEDEBUG variable itself, and
+#                     with CX_LOG it always adds +timestamp,+pid,+seh,+unwind,+process,+module,
+#                     +loaddll,+threadname on top.
 #   RELAY=1           Add heavy +relay tracing. SLOW and changes timing — only if the
 #                     default run is uninformative. ACE is timing-sensitive; expect
 #                     different behavior under relay.
@@ -137,13 +140,12 @@ fi
 WINEPREFIX="$BOTTLE_PATH" CX_ROOT="$CX_ROOT" "$CXBIN/wineserver" -k >/dev/null 2>&1 || true
 
 # ---- launch -----------------------------------------------------------------
-# CrossOver's bin/wine is a Perl wrapper that re-execs the real loader as a
-# detached child, so a plain stderr redirect misses Wine's debug channels.
-# CX_LOG routes ALL wine debug output to a file regardless of forking, and
-# --wait-children keeps the wrapper attached until the game's children exit.
+# CrossOver's bin/wine is a Perl wrapper that sets WINEDEBUG itself — to "-all" unless CX_LOG or
+# --debugmsg says otherwise — so the channels must go through --debugmsg; an exported WINEDEBUG
+# is silently dropped. CX_LOG routes all Wine debug output (plus the wrapper's own log) to one
+# file, and --wait-children keeps the wrapper attached until the game's children exit.
 echo "Launching (up to ${TIMEOUT}s)... cxlog -> $CXLOG"
-export WINEDEBUG
-CX_LOG="$CXLOG" "$CXBIN/wine" --bottle "$BOTTLE" --wait-children --cx-app "$TARGET" > "$WINE_LOG" 2>&1 &
+CX_LOG="$CXLOG" "$CXBIN/wine" --bottle "$BOTTLE" --debugmsg "$WINEDEBUG" --wait-children --cx-app "$TARGET" > "$WINE_LOG" 2>&1 &
 WINEPID=$!
 
 elapsed=0

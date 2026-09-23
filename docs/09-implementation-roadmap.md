@@ -35,12 +35,12 @@ sw_vers ; uname -m ; sysctl -n machdep.cpu.brand_string
 
 **Result: see [docs/10-milestone-1-results.md](10-milestone-1-results.md).** The failure is a **protector (VMProtect/TenProtect) exception-dispatch loop in `EndfieldBase.dll`** (repeated execute-`c0000005` → colliding unwind → stack overflow), *before* ACE loads — a user-space-fixable class, not a kernel wall. Two follow-ups remain: **1b** (run the faithful launcher path, not direct `Endfield.exe`) and confirming the exact patch that fixes it (milestones 3/6).
 
-Original procedure (use `scripts/01-capture-failure.sh`, which now uses `CX_LOG` + `--wait-children` — a plain stderr redirect does NOT work on CrossOver):
+Original procedure (use `scripts/01-capture-failure.sh`, which now uses `CX_LOG` + `--wait-children`; pass channels with `--debugmsg` — CrossOver's wrapper overwrites an exported `WINEDEBUG`, which is why a plain `WINEDEBUG=… wine … &> log` captured nothing, see [10](10-milestone-1-results.md#practical-finding-how-to-capture-logs-on-crossover)):
 
 ```bash
 # In a dedicated bottle, launch the launcher/game with Wine debug logging
-WINEDEBUG=+loaddll,+module,+ntoskrnl,+seh,+relay \
-  <CrossOver wine> "C:/Program Files/GRYPHLINK/Launcher.exe" &> ~/endfield-launch.log
+<CrossOver wine> --bottle <bottle> --debugmsg +loaddll,+module,+ntoskrnl,+seh,+relay \
+  "C:/Program Files/GRYPHLINK/Launcher.exe" &> ~/endfield-launch.log
 # also watch the macOS side:
 log stream --predicate 'process CONTAINS "wine" OR process CONTAINS "Endfield" OR process CONTAINS "ACE"' --info
 ```

@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  # The publisher pushes the generated pages to <repo>.wiki.git, so the default
+  # GITHUB_TOKEN needs write. (pages/id-token are for GitHub Pages and unused here.)
+  contents: write
 
 jobs:
   generate-wiki:
@@ -32,10 +32,13 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-          cache: 'pip'
+          # No `cache: 'pip'` here: this repo has no requirements.txt / pyproject.toml
+          # (it's shell scripts + Swift + Wine patches), and setup-python's pip cache
+          # fails hard when it can't find a dependency file to hash. There's nothing
+          # worth caching — the tool is a single `pip install` below.
 
       - name: Install Git Wiki Builder
-        run: pip install git-wiki-builder
+        run: pip install git-wiki-builder==0.1.4   # pinned for reproducible wiki output
 
       - name: Generate and publish wiki
         run: git-wiki-builder
@@ -48,6 +51,7 @@ jobs:
         run: git-wiki-builder --dry-run --output-dir ./wiki-debug --verbose
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Upload debug artifacts
         if: failure()

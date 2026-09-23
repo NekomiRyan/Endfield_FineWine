@@ -1,3 +1,9 @@
+[![build](https://github.com/stoicswe/Endfield_FineWine/actions/workflows/build.yml/badge.svg)](https://github.com/stoicswe/Endfield_FineWine/actions/workflows/build.yml)
+
+[![nightly](https://github.com/stoicswe/Endfield_FineWine/actions/workflows/nightly.yml/badge.svg)](https://github.com/stoicswe/Endfield_FineWine/actions/workflows/nightly.yml)
+
+[![Generate Wiki Documentation](https://github.com/stoicswe/Endfield_FineWine/actions/workflows/update-wiki.yml/badge.svg)](https://github.com/stoicswe/Endfield_FineWine/actions/workflows/update-wiki.yml)
+
 # Endfield_FineWine — Arknights: Endfield on Apple Silicon macOS
 
 Run **Arknights: Endfield** on an Apple Silicon Mac through a **custom-patched CrossOver Wine** — past the game's VMProtect/TenProtect armor, past the **ACE anti-cheat**, rendering through Apple's **D3DMetal**, all the way into gameplay. CodeWeavers rated Endfield *"Installs, Will Not Run"* and the community consensus was that CrossOver + Endfield was impossible; this repository is the first known working setup, plus the full engineering write-up of how it was found.

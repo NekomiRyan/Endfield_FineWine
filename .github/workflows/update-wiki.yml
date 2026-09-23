@@ -3,13 +3,14 @@ name: Generate Wiki Documentation
 on:
   push:
     branches: [main, master]
-    paths: 
+    paths:
       - 'README.md'
       - 'docs/**'
       - 'scripts/**'
       - 'patches/**'
       - 'patcher-app/**'
       - '.git-wiki-builder.yml'
+      - '.github/scripts/generate-wiki.py'
       - '*.md'
   workflow_dispatch:
 
@@ -21,7 +22,7 @@ permissions:
 jobs:
   generate-wiki:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -40,25 +41,49 @@ jobs:
       - name: Install Git Wiki Builder
         run: pip install git-wiki-builder==0.1.4   # pinned for reproducible wiki output
 
-      # Free OpenRouter models can answer 200 with an error body (upstream
-      # saturation). One cheap request up front shows the raw API response in
-      # the log and fails fast, instead of failing 25 minutes into generation.
+      # Free OpenRouter free-tier models answer with HTTP 200 + {"error": ...}
+      # when an upstream is saturated or rate-limited. One cheap request up front
+      # shows the raw API response in the log — and is retried a few times,
+      # because "temporarily rate-limited upstream" errors are transient. With
+      # the `openrouter/free` model the API routers around loaded upstreams, so
+      # this mostly passes on the first try.
       - name: Preflight — check the AI model answers
         run: |
           MODEL=$(python -c "import yaml; print(yaml.safe_load(open('.git-wiki-builder.yml'))['ai']['model'])")
           echo "Model: $MODEL"
-          curl -sS https://openrouter.ai/api/v1/chat/completions \
-            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "{\"model\": \"$MODEL\", \"max_tokens\": 16, \"messages\": [{\"role\": \"user\", \"content\": \"Reply with exactly: OK\"}]}" \
-            -o /tmp/preflight.json
-          python3 - <<'EOF'
-          import json
+          OK=0
+          for i in 1 2 3 4 5; do
+            echo "preflight attempt $i/5"
+            curl -sS https://openrouter.ai/api/v1/chat/completions \
+              -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"model\": \"$MODEL\", \"max_tokens\": 16, \"messages\": [{\"role\": \"user\", \"content\": \"Reply with exactly: OK\"}]}" \
+              -o /tmp/preflight.json
+            if python3 - "$i" <<'EOF'
+          import json, sys
           body = json.load(open("/tmp/preflight.json"))
-          print(json.dumps(body, indent=2)[:1500])
-          if not body.get("choices"):
-              raise SystemExit("AI preflight failed — the model did not return a completion (see response above). Swap `ai.model` in .git-wiki-builder.yml.")
+          if body.get("choices"):
+              print("AI preflight OK")
+              raise SystemExit(0)
+          err = body.get("error", {})
+          print(f"attempt {sys.argv[1]}: API error {err.get('code')}: {(err.get('message') or '')[:300]}")
+          meta = err.get("metadata") or {}
+          if meta:
+              print("  metadata:", json.dumps(meta, indent=2)[:400])
+          raise SystemExit(1)
           EOF
+            then
+              OK=1
+              break
+            fi
+            sleep 15
+          done
+          if [ "$OK" != 1 ]; then
+            echo "::error::AI preflight failed after 5 attempts — last response:"
+            python3 -c "import json; print(json.dumps(json.load(open('/tmp/preflight.json')), indent=2)[:2000])"
+            echo "::error::Retry the job, or swap ai.model in .git-wiki-builder.yml (openrouter/free usually side-steps upstream rate limits)."
+            exit 1
+          fi
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 

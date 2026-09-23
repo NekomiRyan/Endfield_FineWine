@@ -64,11 +64,9 @@ on:
         required: false
         default: true
         type: boolean
-  push:
-    paths:
-      - "patches/**"
-      - "scripts/build-wine.sh"
-      - ".github/workflows/build-wine.yml"
+  # NOTE: no `push:` trigger here on purpose — default-branch and PR builds run
+  # through .github/workflows/build.yml (which calls this workflow via
+  # workflow_call), so a main push builds exactly once instead of twice.
 
 concurrency:
   group: build-wine-${{ github.ref }}

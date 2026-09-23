@@ -10,12 +10,14 @@
 # with >=64k context: each request ships the README + all docs (~30k tokens).
 ai:
   provider: openai
-  model: qwen/qwen3.8-27b:free
-  # other free candidates (verified 2026-09): nvidia/nemotron-3-ultra-550b-a55b:free,
-  # google/gemma-4-31b-it:free, or the openrouter/free router.
-  # (nvidia/nemotron-3-super-120b-a12b:free answered 200 with an error body on
-  # 2026-09-23 — if a model keeps doing that, .github/scripts/generate-wiki.py
-  # will log the API's error payload; just swap `model` here.)
+  model: openrouter/free
+  # "openrouter/free" is OpenRouter's free-models router: it picks a free model
+  # with available capacity, routing around upstreams that are temporarily
+  # rate-limited (a pinned `:free` model such as qwen/qwen3.8-27b:free can be
+  # "temporarily rate-limited upstream"). Swap `model` for any specific ID if
+  # you want a fixed model — the docs payload is ~30k tokens, so a 64k+ context
+  # model is required. A full wiki run generates ~31 pages, one request each,
+  # against the free-tier daily cap (~50/day without credits).
 
 # Overrides the default wiki structure (Home / Getting Started / User Guide /
 # API Reference / Development / Deployment / FAQ / Changelog) with one that fits

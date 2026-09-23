@@ -43,6 +43,8 @@ Read in order if you're new; jump by subsystem if you're implementing.
 | [10-milestone-1-results.md](10-milestone-1-results.md) | ✅ **Milestone 1 done** — the real failure captured on M3/CrossOver: a VMProtect/TenProtect exception-dispatch loop in `EndfieldBase.dll`, before ACE loads. |
 | [11-linux-vs-macos-comparison.md](11-linux-vs-macos-comparison.md) | ⭐ The log-sample comparison: the Linux failures dw-proton fixes are **later and different** from ours. **dw-proton is necessary-but-not-sufficient**; our blocker is a macOS-specific stage-1 fault. **Read this to understand the strategy.** |
 | [12-stage1-protector-fault.md](12-stage1-protector-fault.md) | ⭐ **The critical path.** The unsolved macOS `0x6CD268` protector fault: three hypotheses (Rosetta / Wine-macOS exceptions / image base) and the ordered experiments to crack it. |
+| [13-working-solution.md](13-working-solution.md) | ✅ **The working solution** — the two Rosetta fixes, the full patch set, the deploy, and the graphics/rpath lessons learned after it worked. |
+| [14-performance-on-16gb-macs.md](14-performance-on-16gb-macs.md) | Measured memory/CPU/GPU behaviour on a 16 GB M4, the memory-pressure freeze and how to spot it, and settings that play well. |
 | [references.md](references.md) | Consolidated, deduplicated source list. |
 
 ## Conventions used in these docs

@@ -4,17 +4,22 @@ A minimal macOS app that turns a copy of **CrossOver 26.2** into the patched bui
 **Arknights: Endfield** on Apple Silicon. It is the GUI equivalent of
 [`scripts/swap-into-crossover.sh`](../scripts/swap-into-crossover.sh)'s core Wine-module swap:
 
-1. Copies your `CrossOver.app` (the original is never touched).
+1. Copies your `CrossOver.app` into a staging folder (the original is never touched).
 2. Swaps in the three pre-built patched Wine modules bundled inside the app
    (`ntdll.so`, `kernel32.dll`, `ntoskrnl.exe`), keeping `.cxorig` backups.
-3. Ad-hoc signs the swapped files, strips the bundle seal, removes quarantine.
-4. Verifies the swap (sizes, `ntdll.so` signature, and the `lib64` rpath D3DMetal needs).
+3. Re-seals the whole bundle with an ad-hoc signature and removes quarantine. (Just stripping
+   the seal gets the copy reported as *damaged* and its binaries killed, because a copy made by
+   a downloaded app carries `com.apple.provenance` — see
+   [docs/05](../docs/05-swapping-into-crossover.md#code-signing-after-modification-apple-silicon-specifics).)
+4. Verifies the swap (sizes, `ntdll.so` signature, the `lib64` rpath D3DMetal needs, and the
+   bundle signature).
+5. Moves the patched app into place; an existing copy macOS won't let it delete goes to the Trash.
 
 Out of scope by design: the optional GPTK4 / MoltenVK graphics upgrades (Apple's GPTK may not
 be redistributed) — see the [main README](../README.md#graphics--performance-gptk4) for those.
 
 **End users need no developer tools** — the `lib64` rpath is baked into the payload at app-build
-time, so at patch time the app only uses `codesign` and `xattr`, which ship with macOS.
+time, so at patch time the app only uses `codesign`, `ditto` and `xattr`, which ship with macOS.
 
 ## Building the app
 

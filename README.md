@@ -25,7 +25,7 @@ As of this project, CodeWeavers rated Endfield **"Installs, Will Not Run"** and 
 - ✅ Unity engine loads (Endfield is Unity IL2CPP), renders through **Apple D3DMetal**
 - ✅ **Login screen + gameplay** — verified running on Apple M4 Pro (and M3)
 
-**Tested on:** Apple M4 Pro (MacBook Pro, 12-core, 24 GB Unified Memory), macOS 27.0, CrossOver 26.2.0. Also tested on Apple M3 / macOS 26.5. Other Apple Silicon chips and nearby macOS/CrossOver-26.2 versions are expected to work.
+**Tested on:** Apple M4 Pro (MacBook Pro, 12-core, 24 GB Unified Memory), macOS 27.0, CrossOver 26.2.0. Also tested on Apple M3 / macOS 26.5, and on a base Apple M4 with **16 GB** (macOS 27.0) — playable at low settings, with memory as the limiting factor ([docs/14](docs/14-performance-on-16gb-macs.md)). Other Apple Silicon chips and nearby macOS/CrossOver-26.2 versions are expected to work.
 
 One cosmetic residual: a background ACE thread aborts on `ntoskrnl.exe.PsGetProcessExitStatus`; the game reaches login/gameplay regardless.
 
@@ -163,6 +163,8 @@ Or launch `CrossOver_Endfield_Patch.app` from Finder and start Endfield from its
 ## Graphics & performance (GPTK4)
 
 **You may not need GPTK4.** CrossOver 26.2 already bundles **D3DMetal 3.0** (= GPTK 3.0), and that is what Endfield renders on out of the box — it runs well on the tested Apple M4 Pro / macOS 27.0 setup (as well as M3 / macOS 26.5) with no extra graphics work. Apple's **Game Porting Toolkit 4** upgrades that bundled D3DMetal **3.0 → 4** (DirectX 12 → **Metal 4**, MetalFX frame-generation, HDR) for the newest/fastest path — but GPTK4 is **macOS 27-era software**, so treat it as an **optional, advanced** upgrade.
+
+> **16 GB Macs:** Endfield fits, but only just — the game's GPU allocations share unified memory with everything else, so memory, not the GPU, is the limit. Measured numbers, settings that play well, and how to recognise the memory-pressure freeze: [docs/14](docs/14-performance-on-16gb-macs.md).
 
 > **On "Vulkan":** GPTK/D3DMetal does **not** provide Vulkan — it translates DirectX **straight to Metal**. Vulkan on Apple GPUs comes from **MoltenVK** (Vulkan → Metal), which CrossOver bundles and CXPatcher/Procyon upgrade. So there are two graphics families: **DirectX → Metal directly** (D3DMetal / DXMT — where GPTK lives) vs **DirectX/Vulkan → Vulkan → Metal** (DXVK / vkd3d + MoltenVK). The direct D3DMetal path is the faster one.
 

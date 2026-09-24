@@ -21,7 +21,7 @@ flowchart TD
     Armor -->|0F 1F multi-byte NOPs| RosettaFix1["Rosetta Fix 1: Decode & skip NOP faults"]
     RosettaFix1 --> ACE["ACE Anti-Cheat (ACE-BASE.sys)"]
     ACE -->|mov cr3 privileged probe| RosettaFix2["Rosetta Fix 2: Deliver EXCEPTION_PRIV_INSTRUCTION"]
-    ACE -->|KiUser*Dispatcher calls| Spoof["kernel32.dll int3 dispatcher spoof"]
+    Armor -->|KiUser*Dispatcher hooking (tpshell workaround)| Spoof["kernel32.dll int3 dispatcher spoof"]
     ACE -->|Kernel routines| Ntoskrnl["ntoskrnl.exe 17 backported functions"]
     ACE -->|Timing checks| QPC["ntdll.so NtDelayExecution relative QPC wait"]
     Game --> Unity["Unity Engine Renderer"]
@@ -59,7 +59,7 @@ Linux's [dw-proton (Dawn Winery)](https://dawn.wine/) solved ACE anti-cheat exec
    * Bug check callbacks: `KeRegisterBugCheckCallback`, `KeRegisterBugCheckReasonCallback`, `KeDeregisterBugCheckReasonCallback`
    * Memory & thread tracking: `MmGetVirtualForPhysical`, `MmGetPhysicalMemoryRanges`, `PsGetContextThread`, `KeCapturePersistentThreadState`
 2. **`KiUser*Dispatcher` int3 spoof (`kernel32.dll`):**
-   ACE hooks `KiUserApcDispatcher` and `KiUserCallbackDispatcher` to detect debugger hooks and tpshell modifications. The patch spoofs `GetProcAddress` for these symbols to point to an `int3` stub.
+   **tpshell** (VMProtect/TenProtect in `EndfieldBase.dll`) hooks `KiUserApcDispatcher` and `KiUserCallbackDispatcher` to detect debugger presence and intercept dispatchers. The patch spoofs `GetProcAddress` for these symbols to return an `int3` stub, satisfying the hook without exposing real dispatcher addresses. (Patch comment: `/* workaround for tpshell */`.)
 3. **`NtDelayExecution` via QPC timing (`ntdll.so`):**
    ACE performs timing checks sensitive to sleep granulary. Replacing relative waits with high-resolution QueryPerformanceCounter (QPC) spin loops avoids anti-cheat timeouts.
 
@@ -98,12 +98,12 @@ CrossOver D3DMetal (Apple GPTK)
 Metal Framework / Apple Silicon GPU
 ```
 
-### Why DirectX 11 is Mandatory
+### Why DirectX 11 is Recommended
 * **DirectX 12:** CrossOver uses `vkd3d` for DX12. The game's complex DXIL / Shader Model 6 shaders fail to compile (`Cannot load DXIL conversion library`), causing a white/blank screen.
-* **Vulkan:** Native Vulkan routed through MoltenVK hits missing Vulkan extensions on macOS, also resulting in a blank screen.
+* **Vulkan (experimental):** Vulkan now renders via MoltenVK when using MoltenVK **1.4.2+** (see [KhronosGroup/MoltenVK#2722](https://github.com/KhronosGroup/MoltenVK/issues/2722)). CrossOver 26.2's bundled MoltenVK 1.2.10 has a swapchain recreation bug that causes a black window after an FPS change — upgrading to 1.4.2 (as `swap-into-crossover.sh` now does by default) resolves this. Treat Vulkan as **experimental**.
 * **DirectX 11:** Routes directly into **Apple D3DMetal** (GPTK 3.0 / 4.0) with zero intermediate hops. It renders fully, supports MetalFX upscaling (spoofed as NVIDIA DLSS), and maintains stable frame times.
 
-Always launch the game with **"Launch with DirectX 11"** from the Gryphline launcher or use `-force-d3d11`.
+For the most stable experience, launch the game with **"Launch with DirectX 11"** from the Gryphline launcher or use `-force-d3d11`. Vulkan may be used experimentally with MoltenVK 1.4.2+.
 
 ---
 

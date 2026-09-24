@@ -9,8 +9,9 @@
 # This produces an x86_64 Wine (runs under Rosetta 2 — the config where dw-proton's #ifdef __x86_64__
 # int3 hack compiles, and the same config where our stage-1 fault occurs).
 #
-# STATUS: milestone-4 scaffold. The exact CrossOver-26.2 configure flags are NOT yet verified to
-# build clean 64-bit-only on macOS 26 — this script is the vehicle to find out. Expect to iterate.
+# STATUS: verified with the CrossOver 26.2.0 sources — builds clean 64-bit-only on the CI builder
+# (GitHub's xcode-27 image) and locally on an M4 / macOS 27.0 with Command Line Tools 16 (~10 min
+# on its 10 cores).
 #
 # Usage:
 #   scripts/build-wine.sh deps      # install Homebrew build deps
@@ -49,6 +50,8 @@ log(){ printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
 cmd_deps() {
   log "Installing Homebrew build dependencies"
+  # bison (>= 3.0) and mingw-w64 are all the current minimal build uses (as on the CI builder);
+  # the rest are kept for the planned Vulkan/MoltenVK renderer work.
   "$BREW" install bison mingw-w64 pkg-config gnutls freetype sdl2 molten-vk meson || true
   local bb; bb="$(get_bison_bin)"
   echo "NOTE: put Homebrew bison (>=3.0) AHEAD of system bison (2.3) on PATH before configure:"
@@ -60,10 +63,12 @@ cmd_fetch() {
   mkdir -p "$BUILD_DIR"
   local tgz="$BUILD_DIR/crossover-sources-${CX_VER}.tar.gz"
   [ -f "$tgz" ] || curl -fL "$SRC_URL" -o "$tgz" || { echo "download failed ($SRC_URL)"; exit 1; }
-  rm -rf "$WINE_SRC"; mkdir -p "$WINE_SRC"
-  # extract only sources/wine/* into WINE_SRC
+  rm -rf "$WINE_SRC" "$BUILD_DIR/sources"
+  # extract only sources/wine, then move the whole directory into place — a `mv sources/wine/*`
+  # would leave Wine's dotfiles (.gitattributes, .editorconfig, .mailmap, …) behind
   tar xzf "$tgz" -C "$BUILD_DIR" sources/wine 2>/dev/null || { echo "extract failed"; exit 1; }
-  mv "$BUILD_DIR/sources/wine"/* "$WINE_SRC/" 2>/dev/null; rmdir "$BUILD_DIR/sources/wine" "$BUILD_DIR/sources" 2>/dev/null || true
+  mv "$BUILD_DIR/sources/wine" "$WINE_SRC" && rmdir "$BUILD_DIR/sources" \
+    || { echo "could not move sources/wine to $WINE_SRC"; exit 1; }
   log "git-init the wine tree (so patches can be applied with 'git am' and diffed)"
   ( cd "$WINE_SRC" && git init -q && git add -A && git -c user.email=b@b -c user.name=build commit -qm "vanilla CrossOver ${CX_VER} wine" )
   echo "wine source ready at: $WINE_SRC"
@@ -116,7 +121,7 @@ cmd_configure() {
     CC="${CC:-clang}" CXX="${CXX:-clang++}" "'"$WINE_SRC"'/configure" --enable-archs=x86_64 --disable-tests --without-x \
       --without-freetype --without-gnutls --without-sdl --without-vulkan --without-krb5 \
       --without-gstreamer --without-gphoto --without-sane --without-pcap --without-usb \
-      --without-cups --without-openal --without-coreaudio
+      --without-cups --without-coreaudio
   ' 2>&1 | tee "$BUILD_DIR/configure.log"
   # CrossOver's win32u/vulkan.c uses SONAME_LIBVULKAN even with --without-vulkan; define it so it
   # compiles (dlopen fails gracefully at runtime — vulkan not needed for stage 1).

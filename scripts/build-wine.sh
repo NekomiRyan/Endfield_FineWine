@@ -9,13 +9,13 @@
 # This produces an x86_64 Wine (runs under Rosetta 2 — the config where dw-proton's #ifdef __x86_64__
 # int3 hack compiles, and the same config where our stage-1 fault occurs).
 #
-# STATUS: verified with the CrossOver 26.2.0 sources — builds clean 64-bit-only on the CI builder
+# STATUS: verified with the CrossOver 26.3.0 sources — builds clean 64-bit-only on the CI builder
 # (GitHub's xcode-27 image) and locally on an M4 / macOS 27.0 with Command Line Tools 16 (~10 min
 # on its 10 cores).
 #
 # Usage:
 #   scripts/build-wine.sh deps      # install Homebrew build deps
-#   scripts/build-wine.sh fetch     # download + extract CrossOver 26.2 wine source, init git
+#   scripts/build-wine.sh fetch     # download + extract CrossOver 26.3 wine source, init git
 #   scripts/build-wine.sh apply     # git apply all patches/ (em-backports -> misc -> macos fixes)
 #   scripts/build-wine.sh configure # run ./configure (64-bit)
 #   scripts/build-wine.sh build     # make -j

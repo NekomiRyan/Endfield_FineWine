@@ -23,7 +23,7 @@ Use the latest available release patcher found on the [releases page](https://gi
 | **Mac** | Apple Silicon (M-series); **Intel not supported** |
 | **macOS** | 15 (Sequoia) or newer — tested on 27.0 / 26.5 |
 | **Rosetta 2** | required: `softwareupdate --install-rosetta --agree-to-license` |
-| **CrossOver** | **26.2**, licensed, from [codeweavers.com](https://www.codeweavers.com/crossover) |
+| **CrossOver** | **26.3**, licensed, from [codeweavers.com](https://www.codeweavers.com/crossover) |
 | **Xcode CLT / Homebrew** | `xcode-select --install` · [brew.sh](https://brew.sh) |
 | **Disk / time** | ~5 GB for the build tree; build ~10 min on a 10-core M4, longer on fewer cores (1.5–2.5 h cold on the 3-vCPU CI runner) |
 
@@ -42,7 +42,7 @@ git clone <your-fork-url> Endfield_FineWine && cd Endfield_FineWine
 open /Applications/CrossOver_Endfield_Patch.app   # 4. run the game — NOT the stock CrossOver app
                                      #    in the launcher: dropdown next to Start -> "Launch with DirectX 11"
                                      #    (the plain Start button uses the game's default Vulkan renderer, which
-                                     #    white-screens under CrossOver 26.2)
+                                     #    white-screens under CrossOver 26.3)
 ```
 
 Full requirements, a manual (auditable) deployment, the bottle/Gryphline setup, and launch options: **[docs/installation.md](docs/installation.md)**.
@@ -51,13 +51,14 @@ Full requirements, a manual (auditable) deployment, the bottle/Gryphline setup, 
 
 - **Scripts (`scripts/`) and documentation (`docs/`, README):** [MIT](LICENSE).
 - **Patches (`patches/`):** these are modifications to **Wine**, so they are **LGPL-2.1-or-later** (Wine's license) — MIT cannot relicense them. The `stage2-dwproton/` patches originate from the **dw-proton (Dawn Winery)** project and retain their upstream authors' rights. See [patches/README.md](patches/README.md).
-- This repo **does not distribute** Wine, CrossOver, Apple's GPTK, MoltenVK, or the game. Get each from its source, under its own license.
+- This repo's **source** does not include Wine, CrossOver, Apple's GPTK, or the game. Built artifacts (e.g. `FineWine Patcher.app`) bundle the patched Wine modules (**LGPL-2.1-or-later**) and MoltenVK (**Apache-2.0**) — see [patcher-app/README.md](patcher-app/README.md) for the corresponding-source offer. Get CrossOver, GPTK and the game from their own sources, under their own licenses.
 
 ## Credits
 
 - **[dw-proton / Dawn Winery](https://dawn.wine/)** — the Linux ACE/Endfield patches that stage 2 ports.
 - **[CodeWeavers CrossOver](https://www.codeweavers.com/crossover)** and the **[Wine](https://www.winehq.org/)** project — the foundation this builds on.
 - **[Apple Game Porting Toolkit](https://developer.apple.com/games/game-porting-toolkit/)** — D3DMetal.
+- **[Khronos Group MoltenVK](https://github.com/KhronosGroup/MoltenVK)** — the Vulkan-on-Metal layer (Apache-2.0); bundled patched in the patcher app.
 - **WineHQ Bug 45083** reporters — the prior art that framed the Rosetta VMProtect problem.
 
 ## Contributing / upstreaming

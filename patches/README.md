@@ -1,6 +1,6 @@
 # patches/
 
-The Wine patches that make Arknights: Endfield run on Apple Silicon macOS. All are applied to CrossOver 26.2's Wine 11.0 source. Full story: [../docs/13-working-solution.md](../docs/13-working-solution.md).
+The Wine patches that make Arknights: Endfield run on Apple Silicon macOS. All are applied to CrossOver 26.3's Wine 11.0 source. Full story: [../docs/13-working-solution.md](../docs/13-working-solution.md).
 
 ```
 STAGE 1  EndfieldBase.dll (VMProtect/TenProtect "tpshell") faults on a plain 0F 1F NOP that Rosetta 2

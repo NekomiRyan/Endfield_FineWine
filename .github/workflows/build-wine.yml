@@ -4,7 +4,10 @@
 #   1. `wine-modules` — the 3 patched Wine modules (ntdll.so, kernel32.dll, ntoskrnl.exe),
 #      pre-finished for drop-in use (lib64 LC_RPATH baked in + ad-hoc signed), plus
 #      SHA256SUMS + BUILD-INFO.txt. These feed swap-into-crossover.sh / the Patcher app.
-#   2. `patcher-app` (optional) — FineWine Patcher.app assembled around those modules.
+#   2. `moltenvk-out` — the patched libMoltenVK.dylib (x86_64), built by build-moltenvk.sh.
+#      Used by apply-modules.sh and bundled into the Patcher app.
+#   3. `patcher-app` (optional) — FineWine Patcher.app assembled around the Wine modules
+#      AND libMoltenVK.dylib.
 #
 # Runner: `xcode-27` = the "latest macOS + latest Xcode" image (macOS 27.0 + Xcode 27.0 RC,
 # public preview; arm64). Override with `runner: macos-26` (GA image, default Xcode 26.6)
@@ -30,7 +33,7 @@ on:
       cx_version:
         description: CrossOver source version to build (must match your CrossOver.app)
         required: false
-        default: "26.2.0"
+        default: "26.3.0"
         type: string
       runner:
         description: macOS runner image (xcode-27 = macOS 27 + Xcode 27 preview; macos-26 = GA)
@@ -52,7 +55,7 @@ on:
       cx_version:
         description: CrossOver source version to build
         required: false
-        default: "26.2.0"
+        default: "26.3.0"
         type: string
       runner:
         description: macOS runner image
@@ -76,14 +79,12 @@ permissions:
   contents: read
 
 jobs:
-
-jobs:
   build-wine:
     name: Wine modules (macOS ${{ inputs.runner || 'xcode-27' }})
     runs-on: ${{ inputs.runner || 'xcode-27' }}
     timeout-minutes: 120
     env:
-      CX_VER: ${{ inputs.cx_version || '26.2.0' }}
+      CX_VER: ${{ inputs.cx_version || '26.3.0' }}
       BUILD_DIR: ${{ github.workspace }}/build
       # ccache wraps Apple clang (CC/CXX now honor overrides in scripts/build-wine.sh)
       CC: ccache clang
@@ -119,7 +120,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: build/wine-out
-          key: wine-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.hash }}-cx${{ env.CX_VER }}-${{ hashFiles('patches/stage1-macos/**', 'patches/stage2-dwproton/**', 'scripts/build-wine.sh', '.github/workflows/build.yml') }}
+          key: wine-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.hash }}-cx${{ env.CX_VER }}-${{ hashFiles('patches/stage1-macos/**', 'patches/stage2-dwproton/**', 'scripts/build-wine.sh', '.github/workflows/build-wine.yml') }}
 
       - name: Install Rosetta 2
         if: steps.cache.outputs.cache-hit != 'true'
@@ -192,7 +193,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          ditto -c -k dist/wine-modules "dist/finewine-wine-modules-${{ env.CX_VER }}-${{ env.SHORT_SHA }}.zip"
+          # build/wine-out is the flat module tree (ntdll.so, kernel32.dll, ntoskrnl.exe, …)
+          ditto -c -k build/wine-out "dist/finewine-wine-modules-${{ env.CX_VER }}-${{ env.SHORT_SHA }}.zip"
           ls -lh dist
 
       - name: Upload wine modules
@@ -219,7 +221,7 @@ jobs:
           echo "_The bundled modules are Wine (LGPL-2.1-or-later) — see \`patcher-app/README.md\` for the source offer / redistribution notes._" >> "$GITHUB_STEP_SUMMARY"
 
   moltenvk:
-    runs-on: xcode-27
+    runs-on: ${{ inputs.runner || 'xcode-27' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -235,7 +237,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: build/moltenvk-out
-          key: moltenvk-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.hash }}-${{ hashFiles('patches/moltenvk/**', 'scripts/build-moltenvk.sh', '.github/workflows/build.yml') }}
+          key: moltenvk-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.hash }}-${{ hashFiles('patches/moltenvk/**', 'scripts/build-moltenvk.sh', '.github/workflows/build-wine.yml') }}
 
       - name: Fetch MoltenVK source
         if: steps.cache.outputs.cache-hit != 'true'
@@ -270,9 +272,11 @@ jobs:
           if-no-files-found: ignore
 
   package:
-    needs: [wine, moltenvk]
-    runs-on: xcode-27
+    needs: [build-wine, moltenvk]
+    runs-on: ${{ inputs.runner || 'xcode-27' }}
     timeout-minutes: 10
+    env:
+      CX_VER: ${{ inputs.cx_version || '26.3.0' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -299,12 +303,12 @@ jobs:
 
   patcher-app:
     name: FineWine Patcher.app
-    needs: build-wine
-    if: ${{ inputs.build_patcher_app != false && needs.build-wine.result == 'success' }}
+    needs: [build-wine, moltenvk]
+    if: ${{ inputs.build_patcher_app != false && needs.build-wine.result == 'success' && needs.moltenvk.result == 'success' }}
     runs-on: ${{ inputs.runner || 'xcode-27' }}
     timeout-minutes: 30
     env:
-      CX_VER: ${{ inputs.cx_version || '26.2.0' }}
+      CX_VER: ${{ inputs.cx_version || '26.3.0' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -316,6 +320,12 @@ jobs:
         with:
           name: wine-modules
           path: payload-dl
+
+      - name: Download MoltenVK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: moltenvk-out
+          path: moltenvk
 
       - name: Unzip modules into a payload tree
         shell: bash
@@ -329,6 +339,7 @@ jobs:
         shell: bash
         env:
           PAYLOAD_DIR: ${{ github.workspace }}/payload
+          MOLTENVK_DIR: ${{ github.workspace }}/moltenvk
         run: ./patcher-app/scripts/build-app.sh
 
       - name: Package Patcher.app zip

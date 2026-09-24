@@ -108,7 +108,7 @@ struct ContentView: View {
     }
 
     private var payloadMissingBox: some View {
-        Label("This build of the patcher has no Wine module payload — rebuild it with patcher-app/scripts/build-app.sh after scripts/build-wine.sh all.",
+        Label("This build of the patcher has no module payload (Wine + MoltenVK) — rebuild it with patcher-app/scripts/build-app.sh after scripts/build-wine.sh all and scripts/build-moltenvk.sh all.",
               systemImage: "exclamationmark.triangle.fill")
             .font(.caption)
             .foregroundStyle(.orange)

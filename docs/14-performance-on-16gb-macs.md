@@ -1,6 +1,6 @@
 # 14 — Performance on 16 GB Macs (measured)
 
-> **Measured on:** MacBook Pro 14", Apple **M4** (10-core CPU), **16 GB** unified memory, macOS 27.0, CrossOver 26.2.0 with this repo's modules, Endfield 1.5.3 in DirectX 11 mode, display at "More Space" (1800×1169). Two sessions, 2026-09-23: one on CrossOver's bundled **D3DMetal 3.0**, one on **GPTK 4.0b2**. The repo's original test machine was an M4 Pro with 24 GB. Tools: `top`, `vm_stat`, `sysctl vm.swapusage`, `memory_pressure`, `ps -M`, and the AGX GPU statistics in `ioreg`.
+> **Measured on:** MacBook Pro 14", Apple **M4** (10-core CPU), **16 GB** unified memory, macOS 27.0, CrossOver 26.3.0 with this repo's modules, Endfield 1.5.3 in DirectX 11 mode, display at "More Space" (1800×1169). Two sessions, 2026-09-23: one on CrossOver's bundled **D3DMetal 3.0**, one on **GPTK 4.0b2**. The repo's original test machine was an M4 Pro with 24 GB. Tools: `top`, `vm_stat`, `sysctl vm.swapusage`, `memory_pressure`, `ps -M`, and the AGX GPU statistics in `ioreg`.
 
 ## TL;DR
 

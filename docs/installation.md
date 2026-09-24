@@ -9,7 +9,7 @@ How to get **Arknights: Endfield** running on an Apple Silicon Mac with the patc
 | **Mac** | Apple Silicon (M-series). Intel is not supported. |
 | **macOS** | 15 (Sequoia) or newer recommended; tested on macOS 27.0 and macOS 26.5. |
 | **Rosetta 2** | Required (`softwareupdate --install-rosetta --agree-to-license`). The patched Wine is x86_64. |
-| **CrossOver** | **26.2** specifically (the swapped modules must match the build's Wine 11.0 ABI). A licensed CrossOver install from [codeweavers.com](https://www.codeweavers.com/crossover). |
+| **CrossOver** | **26.3** specifically (the swapped modules must match the build's Wine 11.0 ABI). A licensed CrossOver install from [codeweavers.com](https://www.codeweavers.com/crossover). |
 | **Xcode CLT** | `xcode-select --install` |
 | **Homebrew** | [brew.sh](https://brew.sh) (Apple Silicon, `/opt/homebrew`) |
 | **The game** | A licensed Arknights: Endfield, installed via the Gryphline launcher into a CrossOver bottle. |
@@ -30,7 +30,7 @@ Or step by step (useful if something needs attention):
 
 ```bash
 ./scripts/build-wine.sh deps       # Homebrew: bison, mingw-w64, meson, pkg-config, ...
-./scripts/build-wine.sh fetch      # download CrossOver 26.2 Wine source (~142 MB), git-init it
+./scripts/build-wine.sh fetch      # download CrossOver 26.3 Wine source (~142 MB), git-init it
 ./scripts/build-wine.sh apply      # git apply all 24 patches (verified to apply cleanly)
 ./scripts/build-wine.sh configure  # 64-bit-only, under `arch -x86_64` (Rosetta host)
 ./scripts/build-wine.sh build      # make -j
@@ -55,7 +55,7 @@ This copies `/Applications/CrossOver.app` into a staging folder, swaps in the 3 
 If you prefer to do it by hand (e.g. to understand or audit it):
 
 ```bash
-# Copy CrossOver (must be 26.2) so the original stays intact
+# Copy CrossOver (must be 26.3) so the original stays intact
 APP="/Applications/CrossOver_Endfield_Patch.app"
 ditto --noextattr --noqtn /Applications/CrossOver.app "$APP"
 CXR="$APP/Contents/SharedSupport/CrossOver"
@@ -103,7 +103,7 @@ Prefer the GUI for the bottle too? Create a *Windows 11 64-bit* bottle named `Ar
 
 ## 5. Run the game
 
-**From the Gryphline launcher (recommended):** open **`CrossOver_Endfield_Patch`** — not the stock `CrossOver`, whose unpatched Wine fails the anti-cheat — select the **Arknights Endfield** bottle, double-click **GRYPHLINK**, then use the **dropdown next to the Start button → "Launch with DirectX 11"**. That item starts the game with `-force-d3d11`; the plain **Start** button launches the game's default Vulkan renderer, which shows a white screen under CrossOver 26.2 (see [graphics-performance.md](graphics-performance.md)).
+**From the Gryphline launcher (recommended):** open **`CrossOver_Endfield_Patch`** — not the stock `CrossOver`, whose unpatched Wine fails the anti-cheat — select the **Arknights Endfield** bottle, double-click **GRYPHLINK**, then use the **dropdown next to the Start button → "Launch with DirectX 11"**. That item starts the game with `-force-d3d11`; the plain **Start** button launches the game's default Vulkan renderer, which shows a white screen under CrossOver 26.3 (see [graphics-performance.md](graphics-performance.md)).
 
 **Or start `Endfield.exe` directly** (the game has its own login screen; both commands add `-force-d3d11`):
 

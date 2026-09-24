@@ -3,12 +3,12 @@
 #
 # Produces /Applications/CrossOver_Endfield_Patch.app containing:
 #   1. our patched Wine modules (the anti-cheat fixes — the reason the game runs at all)
-#   2. GPTK4 / D3DMetal            (a REAL upgrade: stock CrossOver 26.2 ships D3DMetal 3.0 / GPTK3.
+#   2. GPTK4 / D3DMetal            (a REAL upgrade: stock CrossOver 26.3 ships D3DMetal 3.0 / GPTK3.
 #                                   Point GPTK_DIR at Apple's GPTK4 redist to get D3DMetal 4. If your
 #                                   SRC_APP already had GPTK4 installed, this step correctly no-ops.)
 #   3. the latest MoltenVK          (optional; only used by Vulkan/DXVK/vkd3d paths, NOT by D3DMetal)
 #
-# Requires: /Applications/CrossOver.app at version 26.2 (ABI must match the build), and a completed
+# Requires: /Applications/CrossOver.app at version 26.3 (ABI must match the build), and a completed
 # build in build/wine-build64 (run scripts/build-wine.sh all first).
 #
 # Usage:  scripts/swap-into-crossover.sh
@@ -42,7 +42,7 @@ warn(){ printf '  \033[33m!\033[0m %s\n' "$*"; }
 [ -d "$SRC_APP" ] || { echo "ERROR: $SRC_APP not found"; exit 1; }
 [ -f "$B/dlls/ntdll/ntdll.so" ] || { echo "ERROR: no build at $B — run scripts/build-wine.sh all first"; exit 1; }
 ver="$(defaults read "$SRC_APP/Contents/Info" CFBundleShortVersionString 2>/dev/null)"
-[ "$ver" = "26.2" ] || warn "$SRC_APP is version '$ver', expected 26.2 — the Wine ABI must match the build."
+[ "$ver" = "26.3" ] || warn "$SRC_APP is version '$ver', expected 26.3 — the Wine ABI must match the build."
 
 # ---------------------------------------------------------------- 1. copy app
 log "Copying $SRC_APP -> $STAGE (staging)"
@@ -110,7 +110,7 @@ elif [ -d "$GPTK_DIR" ]; then
     fi
   else warn "apple_gptk/external not found in this CrossOver — skipping"; fi
 else
-  warn "GPTK_DIR not found ($GPTK_DIR) — skipping. NOTE: stock CrossOver 26.2 ships D3DMetal 3.0; install Apple GPTK4 for D3DMetal 4."
+  warn "GPTK_DIR not found ($GPTK_DIR) — skipping. NOTE: stock CrossOver 26.3 ships D3DMetal 3.0; install Apple GPTK4 for D3DMetal 4."
 fi
 
 # ---------------------------------------------------------------- 4. MoltenVK
@@ -183,6 +183,6 @@ Next:
   1. First time only: create the bottle with scripts/create-bottle.sh, then install the Gryphline
      launcher into it and let it download Endfield (README → "Before the first launch").
   2. Start the game from the launcher with the dropdown next to Start → "Launch with DirectX 11".
-     Vulkan and DX12 do NOT work under CrossOver 26.2 for this game (white screen).
+     Vulkan and DX12 do NOT work under CrossOver 26.3 for this game (white screen).
   3. See docs/13-working-solution.md for troubleshooting.
 EOF

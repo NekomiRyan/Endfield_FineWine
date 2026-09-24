@@ -15,7 +15,7 @@ Milestones 0–1 (and 1b) are **done** ([docs/10](10-milestone-1-results.md), [d
 
 The original milestone list is preserved below for reference.
 
-## Milestone 0 — Environment inventory (30 min, no risk) — ✅ DONE (Apple M3, macOS 26.5, CrossOver 26.2 + 27-Preview, x86_64/Rosetta)
+## Milestone 0 — Environment inventory (30 min, no risk) — ✅ DONE (Apple M3, macOS 26.5, CrossOver 26.3 + 27-Preview, x86_64/Rosetta)
 
 Establish exactly what you're working with before touching anything.
 

@@ -14,7 +14,7 @@
 
 - **Unity 2021.3.34f5, IL2CPP** — NOT Unreal Engine 5. `[confidence: high — CONFIRMED at runtime]` Verified directly: the game loads `unityplayer.dll` + `GameAssembly.dll` and its own `Player.log` reports `Initialize engine version: 2021.3.34f5`. (The earlier "UE5 CONFIRMED" claim here was wrong — it came from pre-runtime web sources.)
 - ⚠️ Hypergryph **heavily customized** Unity: base structure/editor/tools are stock, but they replaced the **graphics rendering system with their own multi-platform shading tech** (to carry 80k–100k-poly characters). So hair/foliage are **bespoke shaders** — no generic "Unity fix" from the Wine/Proton/DXVK ecosystem matches them.
-- Renderers offered: **Vulkan (default)**, **DirectX 12**, **DirectX 11**. Under CrossOver 26.2, **only DX11 works** (→ D3DMetal → Metal). Vulkan (→ MoltenVK) and DX12 (→ vkd3d, missing DXIL) both white-screen. `[confidence: high — observed on this machine]`
+- Renderers offered: **Vulkan (default)**, **DirectX 12**, **DirectX 11**. Under CrossOver 26.3, **only DX11 works** (→ D3DMetal → Metal). Vulkan (→ MoltenVK) and DX12 (→ vkd3d, missing DXIL) both white-screen. `[confidence: high — observed on this machine]`
 
 **Consequence for the Metal stack:** Endfield defaults to **Vulkan**, but the mature macOS translation paths are DirectX→Metal. So the practical question (once ACE is satisfied) is whether to:
 - force **DirectX 11** and use **DXMT** or **DXVK**, or
@@ -48,7 +48,7 @@ The research's "D3DMetal is the only D3D12-capable path" was **REFUTED**. `vkd3d
 CrossOver 26's Advanced Settings expose **five per-bottle backends**: `Auto | DXMT | D3DMetal | DXVK | Wine (wined3d)`. `[confidence: high — CONFIRMED]`
 - Enabling D3DMetal or DXVK applies to **all apps in the bottle**.
 - Extra toggles: **DLSS-powered-by-MetalFX** (D3DMetal + DXMT only), **MSync** (Mach-semaphore sync), **High Resolution Mode** (192 DPI, disables pixel doubling).
-- **The `cxbottle.conf` keys (verified 2026-09 against CrossOver 26.2.0).** The GUI stores all of these in the bottle's `[EnvironmentVariables]` section (`~/Library/Application Support/CrossOver/Bottles/<bottle>/cxbottle.conf`), and [`scripts/create-bottle.sh`](../scripts/create-bottle.sh) writes them for you:
+- **The `cxbottle.conf` keys (verified 2026-09 against CrossOver 26.3.0).** The GUI stores all of these in the bottle's `[EnvironmentVariables]` section (`~/Library/Application Support/CrossOver/Bottles/<bottle>/cxbottle.conf`), and [`scripts/create-bottle.sh`](../scripts/create-bottle.sh) writes them for you:
 
   | GUI setting | Key | Values |
   |---|---|---|

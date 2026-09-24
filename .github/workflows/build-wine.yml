@@ -16,8 +16,10 @@
 # Notes:
 #   - Builds run the existing scripts/build-wine.sh pipeline (fetch -> apply -> configure -> build),
 #     unchanged except: CC/CXX now default to clang but honor env overrides (so we can use ccache).
-#   - Homebrew deps are lean: only bison, mingw-w64 and ccache. The script's `deps` target
-#     installs more than the minimal configure needs, so we do it inline here.
+#   - Homebrew deps are lean: bison, mingw-w64, pkgconf and ccache, all installed by
+#     `build-wine.sh deps` (which this workflow runs). The `deps` step is skipped on a
+#     wine-out cache hit, so anything it provides (including ccache) must not be assumed
+#     unconditionally afterward.
 #   - macOS 27 (Golden Gate) is a Homebrew Tier-1 Apple Silicon OS (Homebrew 7.0.0, Sept 2026),
 #     so bison/mingw-w64/ccache install from bottles, not source.
 #   - First (cold) run takes ~1.5-2.5 h on the 3-vCPU M1; ccache + tarball caches make
@@ -162,7 +164,13 @@ jobs:
       - name: ccache + disk stats
         shell: bash
         run: |
-          ccache -s
+          # ccache is installed by 'build-wine.sh deps', which is skipped on a wine-out cache
+          # hit — so this informational step must not assume ccache exists.
+          if command -v ccache >/dev/null 2>&1; then
+            ccache -s
+          else
+            echo "ccache not installed (Wine build cache hit) — skipping ccache stats"
+          fi
           df -h "$RUNNER_WORKSPACE" | tail -1
           du -sh build
 

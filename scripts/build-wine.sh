@@ -41,7 +41,9 @@ use_bison(){ export PATH="$("$BREW" --prefix bison)/bin:$PATH"; }  # Wine needs 
 
 cmd_deps() {
   log "Installing Homebrew build dependencies"
-  "$BREW" install bison mingw-w64 pkgconf || exit 1
+  # ccache wraps CC/CXX on CI (the workflow sets "CC: ccache clang"); include it here so a
+  # cache-miss build installs it too.
+  "$BREW" install bison mingw-w64 pkgconf ccache || exit 1
 }
 
 cmd_fetch() {

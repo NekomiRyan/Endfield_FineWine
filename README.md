@@ -10,6 +10,31 @@ CodeWeavers rated Endfield *"Installs, Will Not Run"* and the community consensu
 >
 > **Scope & ethics:** own the game; this is compatibility work (the same category as Valve's Proton on Linux) — no in-game advantage, no modified game logic, no DRM circumvention. Running the game in an unsupported configuration may violate its Terms of Service; that risk is yours (see [LICENSE](LICENSE)). Not affiliated with Gryphline/Hypergryph, Tencent, CodeWeavers, or Apple.
 
+---
+
+## Hardware Specs & Real-World Performance
+
+> **Tested Machine Specs:** Apple **M4 Pro** (MacBook Pro, 12-core CPU: 8P + 4E), **24 GB Unified Memory**, macOS 27.0, CrossOver 26.2.0 / 26.3.0.
+
+* **Settings & Framerate:** Playable on **Medium** settings with **100% render scale** at around **~60 FPS**.
+* **Lower Mac Specs (Base M1/M2/M3/M4 or 16 GB Unified Memory):** Strongly recommended to play on **Low / Very Low** settings (see [docs/14-performance-on-16gb-macs.md](docs/14-performance-on-16gb-macs.md) for 16 GB memory tuning).
+* **⚠️ MacBook Air is OFF-LIMITS:** MacBook Airs have **no active cooling fans**. Sustained CPU translation under Rosetta generates intense heat, causing the device to severely thermal-throttle into heavy stuttering, freezes, and stalls. An actively cooled Mac (MacBook Pro, Mac Studio, Mac mini) is required.
+* **Thermals & CPU Utilization:** Expect temperatures to reach **~90°C** and CPU utilization to be completely maxed out. Rosetta 2 x86 translation overhead combined with the Unity IL2CPP main render thread pegs a core at ~100% saturation.
+* **Bottlenecks (CPU & RAM):** Gameplay performance is almost entirely dictated by **CPU single-core strength and RAM capacity / bandwidth**, not the GPU. Unified memory means GPU VRAM allocations (5–6 GB) and system RAM share the same pool. Even an M4 Pro experiences high thermals and swap pressure under sustained play. **Quit background applications** (browsers, Discord, heavy apps) before launching.
+
+---
+
+## Technical Architecture (Under The Hood)
+
+Curious about how this works under the hood without cluttering up the setup guide? Read **[technical.md](technical.md)** (or **[docs/technical.md](docs/technical.md)**) for the full architectural deep dive, including:
+- **Two novel Rosetta 2 CPU bug fixes:** skipping multi-byte `0F 1F` NOP exception loops and fixing privileged `mov cr3` opcode classification in `signal_x86_64.c`.
+- **dw-proton anti-cheat port:** 17 `ntoskrnl.exe` kernel backports, `KiUser*Dispatcher` int3 spoofer, and high-resolution QPC timing loops.
+- **Surgical module swap & dynamic linking:** why only 3 Wine modules are swapped and how `@loader_path/../../../lib64` rpath is injected so D3DMetal can load.
+- **Graphics translation mechanics:** Direct DirectX 11 → Metal pipeline vs broken DX12/Vulkan paths.
+- Complete subsystem research and milestone reports in [docs/](docs/).
+
+---
+
 ## Quick Start
 
 ### Using the Patcher.app

@@ -21,9 +21,6 @@ Original to this project. The two Rosetta fixes live in `dlls/ntdll/unix/signal_
 
 - `0004-ntdll-don-t-close-the-msync-alert-index-on-thread-exit.patch`, in `dlls/ntdll/unix/thread.c`:
   - Skips closing `alert_fd` on thread exit under MSync: it holds a shared-memory index owned by the server. Closing it can close another thread's wineserver pipe and cause Unity's "SuspendThread loop failed" error.
-- `0005-make-vertex-positions-invariant.patch`:
-  - Makes vertex and tessellation evaluation shader positions invariant so depth prepasses and subsequent EQUAL depth tests agree.
-  - Fixes TAA smearing.
 
 ## `stage2-dwproton/` — the ported dw-proton anti-cheat patches
 
@@ -37,15 +34,18 @@ The Endfield-relevant subset of dw-proton's fix commit `b816be489`, from the `da
 
 ## `moltenvk/`
 
-Applied by `scripts/build-moltenvk.sh` to MoltenVK v1.4.2 and its pinned SPIRV-Cross revision (`spirv-cross/*`). Builds an x86_64 `libMoltenVK.dylib` into `build/moltenvk-out`.
+Applied by `scripts/build-moltenvk.sh` to MoltenVK v1.4.2 and its pinned SPIRV-Cross revision (`spirv-cross/*`). Builds an x86_64 `libMoltenVK.dylib` into `build/moltenvk-out`. Ported from [mary-ext/crossover-wine-endfield](https://github.com/mary-ext/crossover-wine-endfield/tree/main/patches/moltenvk); the set is applied as a series — `0004` depends on `0002`/`0003`, so none may be omitted.
 
 - `spirv-cross/0001-msl-fence-device-scope-control-barriers.patch`: adds device-scope atomic fences around control barriers (MSL 3.2+). `threadgroup_barrier` alone leaves cross-threadgroup reads stale on Apple GPUs. Fixes the stuck work-queue shader in Snowy Forest.
 - `0001-reject-pipeline-caches-without-the-barrier-fix.patch`: sets bit 31 of the Metal-features word in `pipelineCacheUUID` to reject cached MSL without the fences.
+- `0002-use-metal-hazard-tracking-instead-of-barrier-fences.patch`: replaces per-stage `MTLFence`s with Metal's per-resource hazard tracking (`useResource`) so unrelated GPU passes can overlap. Retains the residency set.
+- `0003-compile-shader-libraries-outside-the-pipeline-cache-lock.patch`: converts SPIR-V and compiles `MTLLibrary` objects outside the pipeline-cache lock (a per-module lock prevents duplicate compilation), and compiles libraries from a loaded cache in parallel.
 - `0004-defer-cached-shader-libraries-and-replay-recorded-pipelines.patch`:
   - Compiles cached `MTLLibrary` objects on first use or in the background. Shares libraries with identical MSL and compile options.
   - Saves pipeline descriptors for background replay to warm Metal's shader cache. Verifies that each new recipe reconstructs the original descriptor; stores recipes after shader libraries so older readers ignore them.
   - `MVK_CONFIG_PIPELINE_CACHE_BACKGROUND_WORKERS` sets the worker count (default 4; 0 disables background work).
   - Retrieves and specializes Metal functions without the device-wide lock.
+- `0005-make-vertex-positions-invariant.patch`: makes vertex and tessellation evaluation shader positions invariant so depth prepasses and subsequent EQUAL depth tests agree. Fixes TAA smearing.
 
 Known residual: ACE also calls `ntoskrnl.exe.PsGetProcessExitStatus`, which is **not** in this set (dw-proton's maintainer found that abort "not really related"); one background ACE thread aborts on it, but the game reaches login regardless. A stub would silence it.
 

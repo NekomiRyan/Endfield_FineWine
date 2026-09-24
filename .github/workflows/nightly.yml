@@ -209,7 +209,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TITLE="Nightly snapshot $(date -u +%F) (${{ github.sha }})"
+          # Versioned release title: "Endfield FW <CrossOver version>.<UTC build date>_<full commit>".
+          # e.g. Endfield FW 26.3.0.20260924_3ee19e7110467bdc5655c16634621e7f557d280a
+          TITLE="Endfield FW ${CX_VER}.$(date -u +%Y%m%d)_${{ github.sha }}"
+          echo "RELEASE_TITLE=$TITLE" >> "$GITHUB_ENV"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "existing nightly release -> refreshing in place"
@@ -234,12 +237,14 @@ jobs:
 
           | | |
           |---|---|
+          | Title | %TITLE% |
           | Tag | `nightly` (pre-release) |
           | Commit | `%SHA%` |
           | Assets | Patcher.app zip · modules zip · SHA256SUMS.txt |
           | URL | %RELEASE_URL% |
           EOT
           sed -i \
+            -e "s|%TITLE%|$RELEASE_TITLE|g" \
             -e "s|%SHA%|${{ github.sha }}|g" \
             -e "s|%RELEASE_URL%|${{ github.server_url }}/${{ github.repository }}/releases/tag/nightly|g" \
             summary.md

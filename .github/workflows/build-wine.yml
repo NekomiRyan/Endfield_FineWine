@@ -50,6 +50,11 @@ on:
         required: false
         default: true
         type: boolean
+      app_version:
+        description: CFBundleShortVersionString for FineWine Patcher.app (blank = build-app.sh default)
+        required: false
+        default: ""
+        type: string
   # Reusable-workflow entrypoint — called by nightly.yml, which gates the call on
   # "new code since the last nightly" and only releases if this build is green.
   workflow_call:
@@ -69,6 +74,11 @@ on:
         required: false
         default: true
         type: boolean
+      app_version:
+        description: CFBundleShortVersionString for FineWine Patcher.app (blank = build-app.sh default)
+        required: false
+        default: ""
+        type: string
   # NOTE: no `push:` trigger here on purpose — default-branch and PR builds run
   # through .github/workflows/build.yml (which calls this workflow via
   # workflow_call), so a main push builds exactly once instead of twice.
@@ -317,6 +327,8 @@ jobs:
     timeout-minutes: 30
     env:
       CX_VER: ${{ inputs.cx_version || '26.3.0' }}
+      # Blank input -> build-app.sh's own default version.
+      VERSION: ${{ inputs.app_version }}
     steps:
       - uses: actions/checkout@v4
 

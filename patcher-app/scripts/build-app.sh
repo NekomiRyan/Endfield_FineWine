@@ -13,6 +13,8 @@
 #                            a flat directory holding ntdll.so/kernel32.dll/ntoskrnl.exe also works)
 #   MOLTENVK_DIR            where to find the built libMoltenVK.dylib
 #                           (default: <repo>/build/moltenvk-out; a copy inside PAYLOAD_DIR also works)
+#   VERSION                 CFBundleShortVersionString baked into Info.plist (default: 1.1.0;
+#                           the release workflow sets this to the release branch version)
 #   CODESIGN_ID             signing identity (default "-" = ad-hoc; set your "Developer ID
 #                           Application: …" identity for notarizable builds)
 #   ALLOW_MISSING_PAYLOAD=1 build without payload (smoke-test builds only — the app will
@@ -24,7 +26,7 @@ REPO="$(cd "$HERE/.." && pwd)"
 APP_NAME="FineWine Patcher"
 EXE="FineWinePatcher"
 BUNDLE_ID="io.github.stoicswe.FineWinePatcher"
-VERSION="1.1.0"
+VERSION="${VERSION:-1.1.0}"
 PAYLOAD_DIR="${PAYLOAD_DIR:-$REPO/build/wine-build64}"
 MOLTENVK_DIR="${MOLTENVK_DIR:-$REPO/build/moltenvk-out}"
 CODESIGN_ID="${CODESIGN_ID:--}"

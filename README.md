@@ -24,17 +24,6 @@ CodeWeavers rated Endfield *"Installs, Will Not Run"* and the community consensu
 
 ---
 
-## Technical Architecture (Under The Hood)
-
-Curious about how this works under the hood without cluttering up the setup guide? Read **[technical.md](technical.md)** (or **[docs/technical.md](docs/technical.md)**) for the full architectural deep dive, including:
-- **Two novel Rosetta 2 CPU bug fixes:** skipping multi-byte `0F 1F` NOP exception loops and fixing privileged `mov cr3` opcode classification in `signal_x86_64.c`.
-- **dw-proton anti-cheat port:** 17 `ntoskrnl.exe` kernel backports, `KiUser*Dispatcher` int3 spoofer, and high-resolution QPC timing loops.
-- **Surgical module swap & dynamic linking:** why only 3 Wine modules are swapped and how `@loader_path/../../../lib64` rpath is injected so D3DMetal can load.
-- **Graphics translation mechanics:** Direct DirectX 11 → Metal pipeline vs broken DX12/Vulkan paths.
-- Complete subsystem research and milestone reports in [docs/](docs/).
-
----
-
 ## Quick Start
 
 ### Using the Patcher.app
@@ -71,6 +60,19 @@ open /Applications/CrossOver_Endfield_Patch.app   # 4. run the game — NOT the 
 ```
 
 Full requirements, a manual (auditable) deployment, the bottle/Gryphline setup, and launch options: **[docs/installation.md](docs/installation.md)**.
+
+---
+
+## Technical Architecture (Under The Hood)
+
+Curious about how this works under the hood without cluttering up the setup guide? Read **[technical.md](technical.md)** (or **[docs/technical.md](docs/technical.md)**) for the full architectural deep dive, including:
+- **Two novel Rosetta 2 CPU bug fixes:** skipping multi-byte `0F 1F` NOP exception loops and fixing privileged `mov cr3` opcode classification in `signal_x86_64.c`.
+- **dw-proton anti-cheat port:** 17 `ntoskrnl.exe` kernel backports, `KiUser*Dispatcher` int3 spoofer, and high-resolution QPC timing loops.
+- **Surgical module swap & dynamic linking:** why only 3 Wine modules are swapped and how `@loader_path/../../../lib64` rpath is injected so D3DMetal can load.
+- **Graphics translation mechanics:** Direct DirectX 11 → Metal pipeline vs broken DX12/Vulkan paths.
+- Complete subsystem research and milestone reports in [docs/](docs/).
+
+---
 
 ## License
 

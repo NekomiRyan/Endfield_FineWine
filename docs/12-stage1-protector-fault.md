@@ -6,7 +6,7 @@
 
 ## ✅ SOLVED (2026-07-14): Rosetta rejects a plain NOP; skip it
 
-Built a custom x86_64 CrossOver-26.2 Wine, reproduced the fault, instrumented the illegal-instruction handler to log the faulting bytes, and found the root cause. **It was simpler than the AVX-512 hypothesis** (which was wrong).
+Built a custom x86_64 CrossOver-26.3 Wine, reproduced the fault, instrumented the illegal-instruction handler to log the faulting bytes, and found the root cause. **It was simpler than the AVX-512 hypothesis** (which was wrong).
 
 **The exception sequence:** before the `0x6CD268` execute-fault, the first exception is an **`EXCEPTION_ILLEGAL_INSTRUCTION` (c000001d)** inside `EndfieldBase.dll`'s `.tvm0` (VMProtect VM). The protector's SEH handler processes it and, during its unwind, jumps to `0x6CD268` → the collided-unwind loop → stack overflow. So `0x6CD268` is the protector's mis-computed recovery from an illegal instruction; the illegal instruction is the root cause.
 
@@ -88,7 +88,7 @@ The productive lever if the target is genuinely computed as `0x6CD268`: ensure t
 **E5 — Rosetta synthesized-fields (last resort).**
 If E2–E4 fail, the residue points at Rosetta synthesizing `ERROR_sig`/`EFlags.TF`/debug-register state differently than the Linux kernel, poisoning the protector's computed target. Instrument `ERROR_sig` and the CONTEXT fields; compare to a known-good Windows CONTEXT.
 
-**E0 — housekeeping before trusting any trace:** confirm CrossOver 26.2/27's tree already contains the 2024 Tim Clem / CrossOver collided-unwind fixes `47f94fcf5f8e` + `a9843953156b` (context/xstate corruption on collided-unwind resume). If absent, they could mutate observed CONTEXT.
+**E0 — housekeeping before trusting any trace:** confirm CrossOver 26.3/27's tree already contains the 2024 Tim Clem / CrossOver collided-unwind fixes `47f94fcf5f8e` + `a9843953156b` (context/xstate corruption on collided-unwind resume). If absent, they could mutate observed CONTEXT.
 
 ## Honest assessment (updated — more hopeful, still hard)
 There is now a **concrete, staged, known-good-on-Linux candidate fix** and a cheap experiment (E1) to validate its premise before any build. Best case: the int3 spoof just works and stage 1 collapses. Worst case: it isolates a genuine, unfixed Wine-on-macOS VMProtect exception/memory bug (Bug 45083 class) — hard, but then we have a precise, well-evidenced report for CodeWeavers rather than a mystery. Either way E1→E2 is the path. Risk #1 (kernel wall) stays downgraded.

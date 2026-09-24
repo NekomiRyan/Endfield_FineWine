@@ -24,6 +24,10 @@ enum Payload {
         // ntoskrnl.exe em-backports
         PayloadModule(payloadSubpath: "x86_64-windows/ntoskrnl.exe",
                       crossoverSubpath: "lib/wine/x86_64-windows/ntoskrnl.exe"),
+        // Patched MoltenVK (Vulkan/DXVK/vkd3d paths; replaces CrossOver's bundled copy).
+        // Built by scripts/build-moltenvk.sh and baked into the payload by build-app.sh.
+        PayloadModule(payloadSubpath: "lib64/libMoltenVK.dylib",
+                      crossoverSubpath: "lib64/libMoltenVK.dylib"),
     ]
 
     /// The rpath the payload ntdll.so must carry so CrossOver's cxcompatdb.so
@@ -53,7 +57,7 @@ enum Payload {
 
 /// What we know about a selected CrossOver.app.
 struct CrossOverInfo {
-    static let expectedVersion = "26.2"
+    static let expectedVersion = "26.3"
 
     let url: URL
     let version: String?
@@ -79,9 +83,9 @@ struct CrossOverInfo {
     }
 }
 
-/// Performs the patch. Mirrors scripts/swap-into-crossover.sh steps 1, 2 and 5
-/// (the Wine-module swap). GPTK4/MoltenVK graphics upgrades are intentionally
-/// out of scope — Apple's GPTK may not be redistributed.
+/// Performs the patch. Mirrors scripts/swap-into-crossover.sh steps 1, 2 and 5:
+/// the patched Wine-module swap plus the bundled patched MoltenVK. Apple's GPTK
+/// / D3DMetal is intentionally out of scope — it may not be redistributed.
 @MainActor
 final class PatcherEngine: ObservableObject {
     struct Step: Identifiable {
@@ -98,7 +102,7 @@ final class PatcherEngine: ObservableObject {
 
     private static let stepLabels = [
         "Copying CrossOver",
-        "Installing the patched Wine modules",
+        "Installing the patched modules",
         "Re-sealing the bundle",
         "Verifying",
         "Moving the patched app into place",
@@ -113,7 +117,7 @@ final class PatcherEngine: ObservableObject {
     func patch(source: URL, destination: URL) {
         guard !isRunning else { return }
         guard let payloadDir = Payload.directory, Payload.isComplete else {
-            errorMessage = "This build of the patcher does not include the Wine module payload. Rebuild it with patcher-app/scripts/build-app.sh after scripts/build-wine.sh all."
+            errorMessage = "This build of the patcher does not include the module payload (Wine + MoltenVK). Rebuild it with patcher-app/scripts/build-app.sh after scripts/build-wine.sh all and scripts/build-moltenvk.sh all."
             return
         }
         reset()
@@ -228,9 +232,10 @@ final class PatcherEngine: ObservableObject {
                 try fm.moveItem(at: dst, to: backup)
             }
             try fm.copyItem(at: src, to: dst)
-            // Only the Mach-O (ntdll.so) needs a signature of its own to load on Apple Silicon.
-            // The PE modules are covered by the bundle seal, as in stock CrossOver.
-            if dst.pathExtension == "so" {
+            // Only the Mach-O modules (ntdll.so, libMoltenVK.dylib) need a signature of their
+            // own to load on Apple Silicon. The PE modules are covered by the bundle seal, as in
+            // stock CrossOver.
+            if dst.pathExtension == "so" || dst.pathExtension == "dylib" {
                 try run("/usr/bin/codesign", ["--force", "--sign", "-", dst.path])
             }
         }

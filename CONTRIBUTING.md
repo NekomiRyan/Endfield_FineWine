@@ -12,6 +12,7 @@ First off, thank you so much for considering a contribution to this project. We 
     -   [2.2 Coding style guide](#22-coding-style-guide)
 -   [3. Code Review Process](#3-code-review-process)
 -   [4. Community and Communication](#4-community-and-communication)
+-   [5. Releasing](#releasing)
 
 <br/>
 
@@ -87,3 +88,47 @@ All submissions, including submissions by project maintainers, require review. W
 ### Community and Communication
 
 Follow discussions in the [GitHub Issues](https://github.com/{username}/{repo}/issues) section of our repository.
+
+<br/>
+
+[//]: # '## 5. Releasing'
+
+## Releasing
+
+Full releases are cut from a `release/<version>` branch. Pushing to one (for example
+`release/1.0.1`) runs [`.github/workflows/release.yml`](.github/workflows/release.yml), which
+builds the complete artifact set (patched Wine + MoltenVK + `FineWine Patcher.app`) and publishes
+a full GitHub Release:
+
+-   **Tag:** `<version>` (bare, matching the existing `1.0.0` tag — no `v` prefix).
+-   **Title:** `Endfield FineWine <version>`.
+-   **Assets:** `FineWine.Patcher.app.zip`, `endfield-wine-modules.tar.gz` (Wine + MoltenVK, for
+    `scripts/apply-modules.sh`), and `SHA256SUMS.txt`.
+-   **Notes:** a human-readable summary of the commits since the previous release, generated with
+    the same OpenRouter/LLM backend as the wiki (`OPENROUTER_API_KEY` secret; model from
+    `.git-wiki-builder.yml`). If the model is unavailable it falls back to the raw commit list, so a
+    flaky free-tier model never blocks a release.
+
+The `.app`'s `CFBundleShortVersionString` is set from the branch version, so it reports the version
+it was released as.
+
+To cut a release:
+
+```bash
+git checkout main && git pull
+git checkout -b release/1.0.1
+git push origin release/1.0.1      # triggers the release workflow
+```
+
+Then watch the run under **Actions → release**; the published release appears at
+`https://github.com/stoicswe/Endfield_FineWine/releases/tag/1.0.1`.
+
+Notes:
+
+-   The version must be `x.y.z`. The previous release is detected from the numeric git tags, so
+    always tag releases as bare versions (`1.0.1`, not `v1.0.1`).
+-   Re-pushing to the same `release/<version>` branch refreshes the existing release in place.
+-   To publish an explicit version without a branch, use **Actions → release → Run workflow** with
+    the `version` input.
+-   The rolling `nightly` prerelease is separate; see
+    [`.github/workflows/nightly.yml`](.github/workflows/nightly.yml).

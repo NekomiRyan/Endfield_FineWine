@@ -108,7 +108,7 @@ jobs:
     if: needs.changes.outputs.should_build == 'true'
     uses: ./.github/workflows/build-wine.yml
     with:
-      cx_version: "26.2.0"
+      cx_version: "26.3.0"
       runner: "xcode-27" # macOS 27.0 + Xcode 27.0 RC; change to macos-26 for the GA image
       build_patcher_app: true
 
@@ -118,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      CX_VER: "26.2.0"
+      CX_VER: "26.3.0"
       TAG: nightly
     steps:
       - uses: actions/checkout@v4
@@ -168,7 +168,7 @@ jobs:
 
           | Asset | What it is |
           |---|---|
-          | `finewine-patcher-…zip` | **FineWine Patcher.app** — patches a copy of your CrossOver @@CX_VER@@ with the three anti-cheat Wine modules (open it and follow the UI) |
+          | `finewine-patcher-…zip` | **FineWine Patcher.app** — patches a copy of your CrossOver @@CX_VER@@ with the anti-cheat Wine modules and a patched MoltenVK (open it and follow the UI) |
           | `finewine-wine-modules-…zip` | The three patched Wine modules alone — for `scripts/swap-into-crossover.sh` users |
           | `SHA256SUMS.txt` | SHA-256 checksums of the assets |
 
@@ -182,7 +182,7 @@ jobs:
 
           - Built on the `xcode-27` GitHub runner image (macOS 27.0 / Xcode 27.0; x86_64 Wine output under Rosetta).
           - CrossOver Wine source: [crossover-sources-@@CX_VER@@.tar.gz](https://media.codeweavers.com/pub/crossover/source/crossover-sources-@@CX_VER@@.tar.gz) + this repo's `patches/` at `@@SHA@@`.
-          - The patched modules are **Wine (LGPL-2.1-or-later)**; the complete corresponding source is the tarball above plus the patches (see `patcher-app/README.md`).
+          - The patched Wine modules are **LGPL-2.1-or-later**; the bundled MoltenVK is **Apache-2.0**. The complete corresponding source is the CrossOver tarball above, the pinned MoltenVK revision, and this repo's `patches/` (see `patcher-app/README.md`).
           """
           # The template lives inside the workflow's literal block scalar, so strip the
           # common leading indentation before writing it out.
@@ -209,7 +209,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TITLE="Nightly snapshot $(date -u +%F) (${{ github.sha }})"
+          # Versioned release title: "Endfield FW <CrossOver version>.<UTC build date>_<full commit>".
+          # e.g. Endfield FW 26.3.0.20260924_3ee19e7110467bdc5655c16634621e7f557d280a
+          TITLE="Endfield FW ${CX_VER}.$(date -u +%Y%m%d)_${{ github.sha }}"
+          echo "RELEASE_TITLE=$TITLE" >> "$GITHUB_ENV"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "existing nightly release -> refreshing in place"
@@ -234,12 +237,14 @@ jobs:
 
           | | |
           |---|---|
+          | Title | %TITLE% |
           | Tag | `nightly` (pre-release) |
           | Commit | `%SHA%` |
           | Assets | Patcher.app zip · modules zip · SHA256SUMS.txt |
           | URL | %RELEASE_URL% |
           EOT
           sed -i \
+            -e "s|%TITLE%|$RELEASE_TITLE|g" \
             -e "s|%SHA%|${{ github.sha }}|g" \
             -e "s|%RELEASE_URL%|${{ github.server_url }}/${{ github.repository }}/releases/tag/nightly|g" \
             summary.md

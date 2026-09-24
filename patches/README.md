@@ -21,6 +21,9 @@ Original to this project. The two Rosetta fixes live in `dlls/ntdll/unix/signal_
 
 - `0004-ntdll-don-t-close-the-msync-alert-index-on-thread-exit.patch`, in `dlls/ntdll/unix/thread.c`:
   - Skips closing `alert_fd` on thread exit under MSync: it holds a shared-memory index owned by the server. Closing it can close another thread's wineserver pipe and cause Unity's "SuspendThread loop failed" error.
+- `0005-make-vertex-positions-invariant.patch`:
+  - Makes vertex and tessellation evaluation shader positions invariant so depth prepasses and subsequent EQUAL depth tests agree.
+  - Fixes TAA smearing.
 
 ## `stage2-dwproton/` — the ported dw-proton anti-cheat patches
 
@@ -32,6 +35,18 @@ The Endfield-relevant subset of dw-proton's fix commit `b816be489`, from the `da
 - `misc/0008…` — wintrust winex11/winewayland bypass. **macOS-irrelevant** (targets `winex11.drv`); applies cleanly, does nothing on `winemac.drv`; kept for completeness.
 - `em-backports/0001-0017…` — the `ntoskrnl.exe` functions ACE calls (`KeAcquireGuardedMutex`, `PsGetProcessImageFileName`, `MmGetPhysicalMemoryRanges`, …). `0010` (`PsGetProcessImageFileName`) is the exact WineHQ-bug-59411 Linux blocker.
 
+## `moltenvk/`
+
+Applied by `scripts/build-moltenvk.sh` to MoltenVK v1.4.2 and its pinned SPIRV-Cross revision (`spirv-cross/*`). Builds an x86_64 `libMoltenVK.dylib` into `build/moltenvk-out`.
+
+- `spirv-cross/0001-msl-fence-device-scope-control-barriers.patch`: adds device-scope atomic fences around control barriers (MSL 3.2+). `threadgroup_barrier` alone leaves cross-threadgroup reads stale on Apple GPUs. Fixes the stuck work-queue shader in Snowy Forest.
+- `0001-reject-pipeline-caches-without-the-barrier-fix.patch`: sets bit 31 of the Metal-features word in `pipelineCacheUUID` to reject cached MSL without the fences.
+- `0004-defer-cached-shader-libraries-and-replay-recorded-pipelines.patch`:
+  - Compiles cached `MTLLibrary` objects on first use or in the background. Shares libraries with identical MSL and compile options.
+  - Saves pipeline descriptors for background replay to warm Metal's shader cache. Verifies that each new recipe reconstructs the original descriptor; stores recipes after shader libraries so older readers ignore them.
+  - `MVK_CONFIG_PIPELINE_CACHE_BACKGROUND_WORKERS` sets the worker count (default 4; 0 disables background work).
+  - Retrieves and specializes Metal functions without the device-wide lock.
+
 Known residual: ACE also calls `ntoskrnl.exe.PsGetProcessExitStatus`, which is **not** in this set (dw-proton's maintainer found that abort "not really related"); one background ACE thread aborts on it, but the game reaches login regardless. A stub would silence it.
 
 ## Applying
@@ -42,7 +57,6 @@ All 24 patches are unified diffs and apply cleanly with `git apply` in this orde
 
 These patches modify **Wine** (https://www.winehq.org/), which is **LGPL-2.1-or-later**. As derivative works of LGPL code, **all patches here are LGPL-2.1-or-later** — the project's top-level MIT license (which covers `scripts/` and `docs/`) does **not** apply to this directory.
 
-- `stage2-dwproton/*` are from the **dw-proton / Dawn Winery** project and retain their upstream authorship: Etaash Mathamsetty (em-backports, NtDelayExecution), Ziia Shi / mkrsym1 (int3 spoof), NelloKudo (gating), and other dw-proton contributors. They are redistributed here under LGPL-2.1 with attribution.
-- `stage1-macos/*` are authored by this project, but as modifications to Wine's `signal_x86_64.c` / `win32u` they are likewise **LGPL-2.1-or-later**.
+[Wine](https://www.winehq.org/) patches are licensed LGPL-2.1-or-later; `moltenvk/` patches, Apache-2.0 like MoltenVK and SPIRV-Cross. `stage2-dwproton/*` retain upstream authorship (Etaash Mathamsetty, Ziia Shi / mkrsym1, NelloKudo and other dw-proton contributors).
 
 This directory does not contain Wine itself — only diffs to be applied to a Wine source tree you fetch separately.

@@ -2,20 +2,35 @@
 
 The anti-cheat fixes get Endfield past ACE; this page is about making it *render well*. The research background (backends, Endfield's engine, the `cxbottle.conf` keys) is in [06-graphics-and-gptk.md](06-graphics-and-gptk.md); measured numbers for memory-constrained Macs are in [14-performance-on-16gb-macs.md](14-performance-on-16gb-macs.md).
 
-**You may not need GPTK4.** CrossOver 26.2 already bundles **D3DMetal 3.0** (= GPTK 3.0), and that is what Endfield renders on out of the box — it runs well on the tested Apple M4 Pro / macOS 27.0 setup (as well as M3 / macOS 26.5) with no extra graphics work. Apple's **Game Porting Toolkit 4** upgrades that bundled D3DMetal **3.0 → 4** (DirectX 12 → **Metal 4**, MetalFX frame-generation, HDR) for the newest/fastest path — but GPTK4 is **macOS 27-era software**, so treat it as an **optional, advanced** upgrade.
+**You may not need GPTK4.** CrossOver 26.3 already bundles **D3DMetal 3.0** (= GPTK 3.0), and that is what Endfield renders on out of the box — it runs well on the tested Apple M4 Pro / macOS 27.0 setup (as well as M3 / macOS 26.5) with no extra graphics work. Apple's **Game Porting Toolkit 4** upgrades that bundled D3DMetal **3.0 → 4** (DirectX 12 → **Metal 4**, MetalFX frame-generation, HDR) for the newest/fastest path — but GPTK4 is **macOS 27-era software**, so treat it as an **optional, advanced** upgrade.
 
 > **16 GB Macs:** Endfield fits, but only just — the game's GPU allocations share unified memory with everything else, so memory, not the GPU, is the limit. Measured numbers, settings that play well, and how to recognise the memory-pressure freeze: [14-performance-on-16gb-macs.md](14-performance-on-16gb-macs.md).
 
 > **On "Vulkan":** GPTK/D3DMetal does **not** provide Vulkan — it translates DirectX **straight to Metal**. Vulkan on Apple GPUs comes from **MoltenVK** (Vulkan → Metal), which CrossOver bundles and CXPatcher/Procyon upgrade. So there are two graphics families: **DirectX → Metal directly** (D3DMetal / DXMT — where GPTK lives) vs **DirectX/Vulkan → Vulkan → Metal** (DXVK / vkd3d + MoltenVK). The direct D3DMetal path is the faster one.
 
-## ⚠️ The one rule: run Endfield in DirectX 11
+## ⚠️ Run Endfield in DirectX 11 (or, experimentally, Vulkan)
 
-**For Endfield specifically: set the game's own renderer to DirectX 11.** Endfield defaults to Vulkan/DX12, and under CrossOver 26.2 those fail (DX12 → `vkd3d` can't compile its DXIL shaders; native Vulkan → MoltenVK also fails) → white screen. Setting the CrossOver *backend* to D3DMetal is **not** enough to reroute the game's DX12 off vkd3d — the game itself must run in **DirectX 11**:
+**For Endfield specifically: set the game's own renderer to DirectX 11.** Endfield defaults to Vulkan/DX12. DX12 fails under CrossOver (`vkd3d` can't compile its DXIL shaders → white screen), and Vulkan needs a newer MoltenVK than CrossOver ships ([below](#experimental-the-vulkan-renderer)). Setting the CrossOver *backend* to D3DMetal is **not** enough to reroute the game's DX12 off vkd3d — the game itself must run in **DirectX 11**:
 
 - start it with the Gryphline launcher's **Launch with DirectX 11** (in the dropdown next to Start), which passes `-force-d3d11`, **or**
 - launch `Endfield.exe` with `-force-d3d11` yourself ([`scripts/launch-endfield.sh`](../scripts/launch-endfield.sh) does).
 
 The in-game graphics settings have no API option, and the plain Start button uses the default renderer. The backend guidance below applies once the game is on a DirectX path. A game update can reset the renderer back to Vulkan/DX12 — that's the usual cause when the white screen "comes back" ([troubleshooting.md](troubleshooting.md)).
+
+### Experimental: the Vulkan renderer
+
+The game's Vulkan renderer runs through MoltenVK (Vulkan → Metal), not the bottle's D3DMetal setting, so the MoltenVK in the patched app's `lib64/` decides how well it works:
+
+- **CrossOver's bundled MoltenVK (1.2.10)** renders, but once the game recreates its swapchain (changing FPS or V-Sync does) the window stays black and the game has to be force-closed ([KhronosGroup/MoltenVK#2722](https://github.com/KhronosGroup/MoltenVK/pull/2722)). `swap-into-crossover.sh` downloads 1.4.1 by default, which predates the fix.
+- **Stock MoltenVK 1.4.2** fixes the black screen. mary-ext reported three problems that remain ([#22](https://github.com/stoicswe/Endfield_FineWine/issues/22)): teleporting to Snowy Forest can hang the GPU (macOS then kills WindowServer, which logs you out), TAAU/FSR3 artifacts near Recycling Stations, and stutter until Metal's pipeline cache is built.
+- **This repo's patched MoltenVK** (`patches/moltenvk`, ported from [mary-ext's fork](https://github.com/mary-ext/crossover-wine-endfield)) is meant to fix those three. Build it with `scripts/build-moltenvk.sh` (needs full Xcode), then install it with `scripts/package.sh` and `scripts/apply-modules.sh`.
+- **After swapping MoltenVK (or changing `MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS`), delete the game's pipeline cache** — `…/LocalLow/Gryphline/Endfield/vulkan_pso_cache.bin` was compiled by the previous module build and can be reused after the change, drawing some meshes with wrong shader/descriptor data (e.g. bushes/grass as odd, stretched polygons). It is not cleared automatically; delete it manually and let the game rebuild it. See [troubleshooting.md → In-game graphics](troubleshooting.md#in-game-graphics).
+
+Launch it with `GFXARGS=-force-vulkan scripts/launch-endfield.sh`.
+
+On a 16 GB M4 (CrossOver 26.2, stock MoltenVK 1.4.2): the first Vulkan launch compiled shaders for ~10 minutes (~3–4 the next time), frame pacing felt smoother than DX11, and it used about half the GPU memory. There's no DLSS under Vulkan; the game offers TAAU and AMD FSR3 instead (FSR3 *Native AA* looked best, and FSR Frame Generation made it slower). Numbers and settings: [14-performance-on-16gb-macs.md](14-performance-on-16gb-macs.md#vulkan-renderer-experimental).
+
+Upstream MoltenVK doesn't have two extensions CodeWeavers added to CrossOver's copy (`VK_EXT_transform_feedback`, `VK_NV_glsl_shader`). Endfield doesn't need them, but a DXVK game in the same CrossOver copy might.
 
 ## Pick the graphics backend
 
@@ -30,6 +45,8 @@ Also enable **DLSS (MetalFX)** and **MSync** — or let [`scripts/create-bottle.
 ## Installing GPTK4 (optional)
 
 > **Apple's GPTK is evaluation-only software — download it yourself; you may not redistribute it**, so this repo cannot bundle it. These steps target **macOS 27 (beta)** for GPTK4. On **macOS 26**, CrossOver's bundled **D3DMetal 3.0** is the matched version — no action needed.
+
+> **[FineWine Patcher.app](../patcher-app/README.md) can do this for you:** mount the *"Evaluation environment for Windows games …"* DMG and the patcher's optional **GPTK4 / D3DMetal** step installs it into the copy it creates (only `lib64/apple_gptk/external/` is replaced). It is never bundled or redistributed — the app reads the DMG you supplied. The manual steps below are the equivalent if you prefer the shell script or a CXPatcher/Procyon workflow.
 
 ### 1. Download from Apple
 
@@ -70,7 +87,7 @@ If macOS refuses to modify the app ("Operation not permitted" — App Management
 
 ### Caveats
 
-- **GPTK4 wants macOS 27 (beta)** + Metal 4. On **macOS 26, stay on the bundled D3DMetal 3.0.** GPTK4 in **CrossOver 26.2**: D3DMetal **4.0b2** ("Evaluation environment for Windows games 4.0 beta 2") installed with `swap-into-crossover.sh` runs Endfield in DX11 mode on an M4 / macOS 27.0 (verified 2026-09-23; 4.0b1 was the original tested config). Keep the `-old` / `external.cxorig` backups and be ready to revert (`SKIP_GPTK=1 ./scripts/swap-into-crossover.sh` rebuilds with the stock 3.0); CrossOver 27 / Procyon may be the smoother route.
+- **GPTK4 wants macOS 27 (beta)** + Metal 4. On **macOS 26, stay on the bundled D3DMetal 3.0.** GPTK4 in **CrossOver 26.3**: D3DMetal **4.0b2** ("Evaluation environment for Windows games 4.0 beta 2") installed with `swap-into-crossover.sh` runs Endfield in DX11 mode on an M4 / macOS 27.0 (verified 2026-09-23; 4.0b1 was the original tested config). Keep the `-old` / `external.cxorig` backups and be ready to revert (`SKIP_GPTK=1 ./scripts/swap-into-crossover.sh` rebuilds with the stock 3.0); CrossOver 27 / Procyon may be the smoother route.
 - Apple Silicon only; Rosetta 2 required.
 
 ## Performance notes

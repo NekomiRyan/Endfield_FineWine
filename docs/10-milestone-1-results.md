@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | Hardware | Apple **M3**, macOS **26.5.2** (arm64) |
-| CrossOver | **26.2.0** (release) and **27.0 Preview** (`cxpreview-20260702-rc1`) — both tested |
+| CrossOver | **26.3.0** (release) and **27.0 Preview** (`cxpreview-20260702-rc1`) — both tested |
 | Wine arch | **x86_64** (`wineserver` is `Mach-O x86_64`) → runs under **Rosetta 2**. ✅ confirms the config where the dw-proton `#ifdef __x86_64__` int3 hack compiles |
 | Bottle | `Arknights Endfield`; `ProductName` already spoofed to **`Windows 11 Pro`** |
 | Game | `C:/Program Files/GRYPHLINK/games/Arknights Endfield/Endfield.exe` (loads at `0x140000000`), plus `EndfieldBase.dll` (loads at `0x6FFFFC060000`) |

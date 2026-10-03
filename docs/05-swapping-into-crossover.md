@@ -61,7 +61,7 @@ xattr -drs com.apple.quarantine CrossOver_patched.app  # remove quarantine (or: 
 ```
 ⚠️ No single authoritative primary doc gives an end-to-end re-sign recipe for a *custom-Wine-swapped* CrossOver; the commands above are community-aggregated macOS standard practice. Prove them on a trivial app first ([09](09-implementation-roadmap.md) milestone 4).
 
-### Verified recipe (2026-09, CrossOver 26.2.0 / macOS 27.0 / M4)
+### Verified recipe (2026-09, CrossOver 26.3.0 / macOS 27.0 / M4)
 
 (A) **fails** once the copy carries a `com.apple.provenance` xattr. macOS attaches it to files created by apps that were Gatekeeper-checked after download — observed here with a shell spawned by an AI coding agent; terminals such as iTerm2 or VS Code's should behave the same, while Terminal.app (an Apple app) isn't provenance-tracked, which is likely why (A) worked originally — and a provenance-tagged bundle has its signature checked at first exec. With the seal stripped, **every binary inside is SIGKILLed** (`wineserver --version` exits 137, even unmodified ones) and a *"CrossOver_Endfield_Patch" is damaged and can't be opened* dialog appears on every attempt. After that first failure macOS also tags the bundle with `com.apple.macl` and blocks further edits inside it (moving the whole bundle to the Trash still works).
 

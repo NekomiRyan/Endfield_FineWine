@@ -2,7 +2,7 @@
 
 **Arknights: Endfield** runs on Apple Silicon macOS under a custom-patched CrossOver Wine — past the VMProtect/TenProtect protector, past the **ACE (Anti-Cheat Expert)** anti-cheat, rendering through Apple's **D3DMetal**, into the login screen and gameplay. This folder holds the **user guides** and the **full engineering write-up** of how the fix was found. The [README](../README.md) is only the quick start — the details live here (and in the project wiki generated from these pages).
 
-**Status (2026-09-23): ✅ working.** Verified on an Apple M4 Pro (24 GB, macOS 27.0, CrossOver 26.2.0), on M3 / macOS 26.5, and on a base M4 with 16 GB (playable, memory-limited — see [14](14-performance-on-16gb-macs.md)).
+**Status (2026-09-23): ✅ working.** Verified on an Apple M4 Pro (24 GB, macOS 27.0, CrossOver 26.3.0), on M3 / macOS 26.5, and on a base M4 with 16 GB (playable, memory-limited — see [14](14-performance-on-16gb-macs.md)).
 
 ## User guides — start here to get the game running
 

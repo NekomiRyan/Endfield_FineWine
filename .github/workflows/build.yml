@@ -35,7 +35,7 @@ on:
       cx_version:
         description: CrossOver source version to build (must match your CrossOver.app)
         required: false
-        default: "26.2.0"
+        default: "26.3.0"
         type: string
       runner:
         description: macOS runner image (xcode-27 = macOS 27 + Xcode 27 preview; macos-26 = GA)
@@ -65,7 +65,7 @@ jobs:
     name: Wine modules (macOS ${{ inputs.runner || 'xcode-27' }})
     uses: ./.github/workflows/build-wine.yml
     with:
-      cx_version: ${{ inputs.cx_version || '26.2.0' }}
+      cx_version: ${{ inputs.cx_version || '26.3.0' }}
       runner: ${{ inputs.runner || 'xcode-27' }}
       build_patcher_app: ${{ inputs.build_patcher_app || false }}
 
@@ -74,7 +74,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Swift version
         run: swift --version

@@ -20,7 +20,9 @@ ok(){   printf '  \033[32m✓\033[0m %s\n' "$*"; }
 warn(){ printf '  \033[33m!\033[0m %s\n' "$*"; }
 die(){  printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 gptk_mnt=""
+gptk_inner_mnt=""
 cleanup(){
+  [ -z "$gptk_inner_mnt" ] || { hdiutil detach "$gptk_inner_mnt" -quiet 2>/dev/null || true; rmdir "$gptk_inner_mnt" 2>/dev/null || true; }
   [ -z "$gptk_mnt" ] || { hdiutil detach "$gptk_mnt" -quiet 2>/dev/null || true; rmdir "$gptk_mnt" 2>/dev/null || true; }
 }
 trap cleanup EXIT
@@ -46,6 +48,16 @@ esac
 
 d3dmetal_version(){ plutil -extract CFBundleShortVersionString raw "$1/D3DMetal.framework/Resources/Info.plist" 2>/dev/null || echo "(unknown version)"; }
 gptk_src=""
+if [ -z "$GPTK" ]; then
+  for cand in /Volumes/Evaluation\ environment* /Volumes/Game\ Porting\ Toolkit*; do
+    if [ -d "$cand" ]; then
+      GPTK="$cand"
+      log "Auto-detected mounted GPTK volume: $GPTK"
+      break
+    fi
+  done
+fi
+
 if [ -n "$GPTK" ]; then
   gptk_root="$GPTK"
   if [ -f "$GPTK" ]; then
@@ -57,6 +69,19 @@ if [ -n "$GPTK" ]; then
   for d in "$gptk_root/redist/lib/external" "$gptk_root"; do
     if [ -f "$d/libd3dshared.dylib" ] && [ -d "$d/D3DMetal.framework" ]; then gptk_src="$d"; break; fi
   done
+  # If gptk_root has an inner DMG (e.g. "Evaluation environment...dmg" inside "Game Porting Toolkit"):
+  if [ -z "$gptk_src" ]; then
+    for inner in "$gptk_root"/Evaluation\ environment*.dmg "$gptk_root"/*.dmg; do
+      if [ -f "$inner" ]; then
+        gptk_inner_mnt="$(mktemp -d)"
+        if hdiutil attach -readonly -nobrowse -noverify -mountpoint "$gptk_inner_mnt" "$inner" >/dev/null </dev/null; then
+          for d in "$gptk_inner_mnt/redist/lib/external" "$gptk_inner_mnt"; do
+            if [ -f "$d/libd3dshared.dylib" ] && [ -d "$d/D3DMetal.framework" ]; then gptk_src="$d"; break 2; fi
+          done
+        fi
+      fi
+    done
+  fi
   [ -n "$gptk_src" ] || die "no D3DMetal found in $GPTK (expected redist/lib/external/D3DMetal.framework)"
   ok "GPTK D3DMetal $(d3dmetal_version "$gptk_src") found"
 fi

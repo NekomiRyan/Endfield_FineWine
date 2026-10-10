@@ -18,7 +18,9 @@ CodeWeavers rated Endfield *"Installs, Will Not Run"* and the community consensu
 
 ## Hardware Specs & Real-World Performance
 
-Tested on an Apple **M4 Pro** (MacBook Pro 12-core, 24 GB), macOS 27.0, CrossOver 26.2/26.3 — ~**60 FPS on Medium** at 100% render scale. ⚠️ **MacBook Air is OFF-LIMITS** (no active cooling). Expect ~90 °C thermals and a fully maxed CPU on any Mac; performance is CPU + RAM bound, not GPU.
+Tested on an Apple **M4 Pro** (MacBook Pro 12-core, 24 GB), macOS 27.0, CrossOver 26.2/26.3 — **120 FPS on Max settings** using **DXMT + `-force-d3d11`** with GPTK4, ~8–12 GB RAM. ⚠️ **MacBook Air is OFF-LIMITS** (no active cooling). Expect ~90 °C thermals; performance is CPU + RAM bound, not GPU.
+
+> **⚠️ Do NOT enable NVIDIA DLSS** in the graphics settings — it causes a black screen under DXMT. Use **TAAU** or **AMD FSR3** for upscaling.
 
 ➜ See **[docs/performance.md](docs/performance.md)** for the full breakdown: per-chip FPS targets, thermal behaviour, swap pressure, and optimisation tips.
 
@@ -56,9 +58,9 @@ git clone <your-fork-url> Endfield_FineWine && cd Endfield_FineWine
                                      #    …then install the Gryphline launcher into it via CrossOver's GUI
 
 open /Applications/CrossOver_Endfield_Patch.app   # 4. run the game — NOT the stock CrossOver app
+                                     #    Set bottle backend to DXMT (CX_GRAPHICS_BACKEND=dxmt)
                                      #    in the launcher: dropdown next to Start -> "Launch with DirectX 11"
-                                     #    (the plain Start button uses the game's default Vulkan renderer:
-                                     #    experimental, see docs/graphics-performance.md)
+                                     #    or add -force-d3d11 flag. Do NOT use NVIDIA DLSS — use TAAU or FSR3.
 ```
 
 Full requirements, a manual (auditable) deployment, the bottle/Gryphline setup, and launch options: **[docs/installation.md](docs/installation.md)**.
@@ -71,7 +73,7 @@ Curious about how this works under the hood without cluttering up the setup guid
 - **Two novel Rosetta 2 CPU bug fixes:** skipping multi-byte `0F 1F` NOP exception loops and fixing privileged `mov cr3` opcode classification in `signal_x86_64.c`.
 - **dw-proton anti-cheat port:** 17 `ntoskrnl.exe` kernel backports, `KiUser*Dispatcher` int3 spoofer, and high-resolution QPC timing loops.
 - **Surgical module swap & dynamic linking:** why only 3 Wine modules are swapped and how `@loader_path/../../../lib64` rpath is injected so D3DMetal can load.
-- **Graphics translation mechanics:** Direct DirectX 11 → Metal pipeline vs broken DX12/Vulkan paths.
+- **Graphics translation mechanics:** DXMT (`-force-d3d11`) → Metal pipeline delivering 120fps at max settings with ~50% less RAM than D3DMetal.
 - Complete subsystem research and milestone reports in [docs/](docs/).
 
 ---

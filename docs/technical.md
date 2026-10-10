@@ -25,8 +25,8 @@ flowchart TD
     ACE -->|Kernel routines| Ntoskrnl["ntoskrnl.exe 17 backported functions"]
     ACE -->|Timing checks| QPC["ntdll.so NtDelayExecution relative QPC wait"]
     Game --> Unity["Unity Engine Renderer"]
-    Unity -->|DirectX 11 mode| D3DMetal["Apple D3DMetal (DirectX -> Metal)"]
-    D3DMetal --> Metal["Apple Silicon GPU (Metal 3 / 4)"]
+    Unity -->|"DirectX 11 (-force-d3d11)"| DXMT["DXMT (D3D11 → Metal translation)"]
+    DXMT --> Metal["Apple Silicon GPU (Metal 3 / 4)"]
 ```
 
 ---
@@ -88,22 +88,79 @@ Our scripts (`swap-into-crossover.sh` and `PatcherEngine.swift`) bake `@loader_p
 
 ## 5. Graphics Translation Pipeline
 
+### Recommended Configuration (October 2026)
+
+| Setting | Value |
+|---|---|
+| **CrossOver Backend** | `dxmt` (`CX_GRAPHICS_BACKEND=dxmt`) |
+| **Launch Flag** | `-force-d3d11` |
+| **GPTK Patch** | v4 (Game Porting Toolkit 4) — **highly recommended** |
+| **Upscaling** | **TAAU** or **AMD FSR3** |
+| **Mods (EFMI)** | ✅ Loads and works |
+
+> [!IMPORTANT]
+> **GPTK4 (Game Porting Toolkit v4) is highly recommended.** The performance gains documented here (120fps, 50% RAM reduction) were achieved with the GPTK4 patch installed. Without GPTK4, you may see significantly worse performance and shader translation issues. Mount the Apple "Evaluation environment for Windows games" DMG and use the patcher or `swap-into-crossover.sh` to install it.
+
 ```
-Endfield Engine (DirectX 11)
+Endfield Engine (DirectX 11, via -force-d3d11)
        │
        ▼
-CrossOver D3DMetal (Apple GPTK)
-       │ (Direct translation: DX11 -> Metal)
+DXMT (CrossOver's D3D11-to-Metal translation layer)
+       │ (Thin, direct DX11 → Metal API mapping)
        ▼
 Metal Framework / Apple Silicon GPU
 ```
 
-### Why DirectX 11 is Recommended
-* **DirectX 12:** CrossOver uses `vkd3d` for DX12. The game's complex DXIL / Shader Model 6 shaders fail to compile (`Cannot load DXIL conversion library`), causing a white/blank screen.
-* **Vulkan (experimental):** Vulkan now renders via MoltenVK when using MoltenVK **1.4.2+** (see [KhronosGroup/MoltenVK#2722](https://github.com/KhronosGroup/MoltenVK/issues/2722)). CrossOver 26.2's bundled MoltenVK 1.2.10 has a swapchain recreation bug that causes a black window after an FPS change — upgrading to 1.4.2 (as `swap-into-crossover.sh` now does by default) resolves this. Treat Vulkan as **experimental**.
-* **DirectX 11:** Routes directly into **Apple D3DMetal** (GPTK 3.0 / 4.0) with zero intermediate hops. It renders fully, supports MetalFX upscaling (spoofed as NVIDIA DLSS), and maintains stable frame times.
+### Backend Comparison
 
-For the most stable experience, launch the game with **"Launch with DirectX 11"** from the Gryphline launcher or use `-force-d3d11`. Vulkan may be used experimentally with MoltenVK 1.4.2+.
+| Backend | Flag | Rendering | Mods (EFMI) | Performance | Notes |
+|---|---|---|---|---|---|
+| **DXMT** | `-force-d3d11` | ✅ Full 3D | ✅ Working | ⭐ Best | **Recommended.** Smooth, fast, with GPTK4 patch |
+| **D3DMetal** | `-force-metal` | ✅ Full 3D | ✅ Working | 🔶 Slower | Works but noticeably lower FPS than DXMT path |
+| **D3DMetal** | `-force-d3d11` | ✅ Full 3D | ✅ Working | 🔶 OK | Functional but DXMT outperforms it |
+| **DXMT** | *(no flag)* | ⚠️ 2D only | ❌ N/A | N/A | Black/grey screen — no 3D rendering without flag |
+| **DXVK** | `-force-d3d11` | ⚠️ Partial | ❌ Fails | 🔴 Slow | Heavy shader compilation stutter, EFMI won't load |
+| **DirectX 12** | N/A | ❌ Broken | ❌ N/A | N/A | `Cannot load DXIL conversion library` — white screen |
+
+### ⚠️ Critical: NVIDIA DLSS Causes Black Screen
+
+> **Do NOT enable NVIDIA DLSS in the in-game graphics settings.**
+>
+> Selecting NVIDIA DLSS as the upscaling method completely breaks 3D rendering under DXMT, resulting in a full black screen. This is because DLSS requires actual NVIDIA hardware tensor cores — the MetalFX "spoof" that D3DMetal provides is not available through the DXMT code path.
+>
+> **Safe upscaling options:**
+> - **TAAU** (Temporal Anti-Aliasing Upscaling) — built into the engine, zero external dependencies
+> - **AMD FSR3** (FidelityFX Super Resolution 3) — shader-based, works on any GPU
+
+### Why DXMT + `-force-d3d11` Wins
+
+1. **Thinner translation layer:** DXMT maps D3D11 API calls almost 1:1 to Metal, avoiding the heavier abstraction that D3DMetal introduces.
+2. **GPTK4 synergy:** The Game Porting Toolkit v4 patch improves Metal shader compilation and resource management, which benefits DXMT's direct pipeline more than D3DMetal's internal pipeline.
+3. **Mod compatibility:** EFMI's 3DMigoto `d3d11.dll` wrapper correctly chains through DXMT's D3D11 implementation, meaning the proxy → real-d3d11 handoff works cleanly.
+4. **Stable frame pacing:** No shader compilation stutter (unlike DXVK), and frame times are consistent.
+5. **Dramatically lower memory usage:** DXMT uses ~8–12 GB RAM vs D3DMetal's ~16 GB — up to a **50% reduction** — making the game viable on 16 GB machines with headroom to spare.
+
+### Measured Performance (October 2026)
+
+| Metric | D3DMetal (`-force-metal`) | DXMT (`-force-d3d11`) |
+|---|---|---|
+| **RAM Usage** | ~16 GB | ~8–12 GB (fluctuates) |
+| **Max Settings FPS** | Playable but lower | **120 fps** |
+| **Shader Stutters** | Occasional | Occasional (less frequent) |
+| **Upscaling** | DLSS spoof (MetalFX) | TAAU / FSR3 only |
+| **Mod Support** | ✅ | ✅ |
+| **CPU Cores Used** | ~4 cores | ~4 cores |
+
+> [!NOTE]
+> Occasional shader compilation stutters may occur during first-time encounters with new effects or areas. These diminish over time as DXMT's shader cache warms up.
+
+> [!TIP]
+> **Mod pre-loading:** When using EFMI/3DMigoto character mods (e.g., costume swaps), the mod's shader overrides need to be "triggered" by viewing the character or scene for the first time. On the initial encounter, you'll see a brief flash of broken/shiny textures as the shader replacement compiles; after that first load the mod renders correctly for the rest of the session.
+
+### Other Backend Notes
+
+* **Vulkan (experimental):** Vulkan now renders via MoltenVK when using MoltenVK **1.4.2+** (see [KhronosGroup/MoltenVK#2722](https://github.com/KhronosGroup/MoltenVK/issues/2722)). CrossOver 26.2's bundled MoltenVK 1.2.10 has a swapchain recreation bug that causes a black window after an FPS change — upgrading to 1.4.2 (as `swap-into-crossover.sh` now does by default) resolves this. Treat Vulkan as **experimental**.
+* **DXVK:** Theoretically viable but shader compilation is extremely slow and EFMI injection fails under this path. Not recommended.
 
 ---
 

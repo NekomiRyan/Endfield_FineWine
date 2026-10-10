@@ -301,6 +301,23 @@ struct ContentView: View {
                     Spacer()
                     Button("Choose Bottle…", action: chooseBottle)
                         .disabled(engine.modIsRunning)
+                    Button("Choose EFMI…", action: chooseImporter)
+                        .disabled(engine.modIsRunning)
+                }
+
+                if let override = chainImporterOverride {
+                    HStack {
+                        Label("EFMI override: \(override.lastPathComponent)", systemImage: "folder.badge.gearshape")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Reset to Auto") {
+                            chainImporterOverride = nil
+                            refreshChain()
+                        }
+                        .font(.caption)
+                        .disabled(engine.modIsRunning)
+                    }
                 }
 
                 if bottles.isEmpty {
@@ -337,11 +354,19 @@ struct ContentView: View {
                     }
                 }
                 if let error = chainSetupError {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack {
+                            Button("Choose EFMI folder…", action: chooseImporter)
+                                .disabled(engine.modIsRunning)
+                            Button("Choose patched app…", action: choosePatchedApp)
+                                .disabled(engine.modIsRunning)
+                        }
+                    }
                 }
             }
             .padding(4)

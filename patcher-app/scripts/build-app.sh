@@ -29,6 +29,25 @@ BUNDLE_ID="io.github.stoicswe.FineWinePatcher"
 VERSION="${VERSION:-1.1.0}"
 PAYLOAD_DIR="${PAYLOAD_DIR:-$REPO/build/wine-build64}"
 MOLTENVK_DIR="${MOLTENVK_DIR:-$REPO/build/moltenvk-out}"
+
+# Fall back to pre-packaged modules in dist/ if build directory does not exist
+if [ ! -d "$PAYLOAD_DIR" ] && [ -d "$REPO/dist/endfield-wine-modules" ]; then
+  PAYLOAD_DIR="$REPO/dist/endfield-wine-modules"
+fi
+
+# If neither exists and we're not explicitly allowing missing payload, try fetching the release tarball
+if [ ! -d "$PAYLOAD_DIR" ] && [ "${ALLOW_MISSING_PAYLOAD:-0}" != "1" ]; then
+  echo "Attempting to fetch pre-built modules from GitHub release..."
+  mkdir -p "$REPO/dist"
+  if command -v gh >/dev/null 2>&1 && gh release download --repo stoicswe/Endfield_FineWine -p "endfield-wine-modules.tar.gz" -D /tmp 2>/dev/null; then
+    tar -xzf /tmp/endfield-wine-modules.tar.gz -C "$REPO/dist"
+    PAYLOAD_DIR="$REPO/dist/endfield-wine-modules"
+  elif curl -sLf "https://github.com/stoicswe/Endfield_FineWine/releases/download/1.2.0/endfield-wine-modules.tar.gz" -o /tmp/endfield-wine-modules.tar.gz 2>/dev/null; then
+    tar -xzf /tmp/endfield-wine-modules.tar.gz -C "$REPO/dist"
+    PAYLOAD_DIR="$REPO/dist/endfield-wine-modules"
+  fi
+fi
+
 CODESIGN_ID="${CODESIGN_ID:--}"
 OUT="$HERE/build"
 APP="$OUT/$APP_NAME.app"

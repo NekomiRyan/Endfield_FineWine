@@ -146,6 +146,14 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(4)
         }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard !engine.isRunning, let url = urls.first else { return false }
+            if let src = GPTKSource.resolve(from: url) {
+                selectGPTK(src)
+                return true
+            }
+            return false
+        }
     }
 
     private var gptkHint: String {
@@ -534,23 +542,20 @@ struct ContentView: View {
 
     private func chooseGPTKFolder() {
         let panel = NSOpenPanel()
-        panel.title = "Choose the GPTK redist/lib/external folder"
+        panel.title = "Choose GPTK Folder or Disk Image (.dmg)"
+        panel.message = "Point at a mounted volume (e.g. Game Porting Toolkit), an Evaluation Environment .dmg, or the redist/lib/external folder."
+        panel.prompt = "Select"
         panel.canChooseDirectories = true
-        panel.canChooseFiles = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.folder, .diskImage]
         panel.allowsMultipleSelection = false
         panel.directoryURL = URL(fileURLWithPath: "/Volumes")
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        // Accept …/redist/lib/external, its parent redist/lib, redist, or the volume root.
-        let candidates = [
-            url,
-            url.appendingPathComponent("redist/lib/external", isDirectory: true),
-            url.appendingPathComponent("lib/external", isDirectory: true),
-        ]
-        if let source = candidates.compactMap({ GPTKSource(url: $0) }).first {
+        if let source = GPTKSource.resolve(from: url) {
             selectGPTK(source)
         } else {
-            engine.errorMessage = "That folder isn't a GPTK redist — expected D3DMetal.framework and libd3dshared.dylib (…/redist/lib/external)."
+            engine.errorMessage = "Could not find D3DMetal in '\(url.lastPathComponent)'. Expected a GPTK redist folder (…/redist/lib/external) or an Evaluation Environment DMG."
         }
     }
 

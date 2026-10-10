@@ -87,11 +87,15 @@ struct GPTKSource: Identifiable, Hashable, Sendable {
               fm.fileExists(atPath: url.appendingPathComponent("D3DMetal.framework").path) else { return nil }
         self.url = url
         self.version = Self.frameworkVersion(plist)
-        let parts = url.standardizedFileURL.pathComponents   // ["/", "Volumes", "<label>", "redist", "lib", "external"]
-        if parts.count >= 6, parts[1] == "Volumes" {
+        let parts = url.standardizedFileURL.pathComponents
+        if parts.count >= 3, parts[1] == "Volumes" {
             volumeName = parts[2]
         } else {
-            volumeName = url.deletingLastPathComponent().lastPathComponent
+            var cur = url
+            while ["external", "lib", "redist"].contains(cur.lastPathComponent.lowercased()), cur.pathComponents.count > 1 {
+                cur = cur.deletingLastPathComponent()
+            }
+            volumeName = cur.lastPathComponent
         }
     }
 
@@ -102,14 +106,146 @@ struct GPTKSource: Identifiable, Hashable, Sendable {
         return parsed["CFBundleShortVersionString"] as? String
     }
 
-    /// Every GPTK redist currently mounted under /Volumes (`<volume>/redist/lib/external`).
+    /// Attaches a DMG using hdiutil and returns the mounted volume URL if successful.
+    @discardableResult
+    static func attachDMG(_ dmgURL: URL) -> URL? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+        p.arguments = ["attach", "-nobrowse", "-readonly", "-plist", dmgURL.path]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = Pipe()
+        do {
+            try p.run()
+            p.waitUntilExit()
+            guard p.terminationStatus == 0 else { return nil }
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            guard let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+                  let entities = plist["system-entities"] as? [[String: Any]] else { return nil }
+            for entity in entities {
+                if let mountPoint = entity["mount-point"] as? String {
+                    return URL(fileURLWithPath: mountPoint)
+                }
+            }
+        } catch {
+            return nil
+        }
+        return nil
+    }
+
+    /// Checks if a volume with the given name (or prefix) is already mounted under /Volumes.
+    static func findMountedVolume(named name: String) -> URL? {
+        let fm = FileManager.default
+        guard let volumes = try? fm.contentsOfDirectory(at: URL(fileURLWithPath: "/Volumes"),
+                                                        includingPropertiesForKeys: nil) else { return nil }
+        let target = name.lowercased()
+        return volumes.first {
+            let n = $0.lastPathComponent.lowercased()
+            return n == target || n.hasPrefix(target) || target.hasPrefix(n)
+        }
+    }
+
+    /// Resolves a GPTKSource from a candidate URL (direct folder, volume, or .dmg file).
+    static func resolve(from candidate: URL) -> GPTKSource? {
+        let fm = FileManager.default
+        let standard = candidate.standardizedFileURL
+
+        // 1. If it's a DMG file directly
+        if standard.pathExtension.lowercased() == "dmg" {
+            let dmgBase = standard.deletingPathExtension().lastPathComponent
+            if let existing = findMountedVolume(named: dmgBase), let src = resolve(from: existing) {
+                return src
+            }
+            if let mounted = attachDMG(standard) {
+                return resolve(from: mounted)
+            }
+            return nil
+        }
+
+        // 2. Direct match or standard subpaths
+        let directSubpaths = [
+            standard,
+            standard.appendingPathComponent("redist/lib/external", isDirectory: true),
+            standard.appendingPathComponent("lib/external", isDirectory: true),
+            standard.appendingPathComponent("external", isDirectory: true),
+        ]
+        for path in directSubpaths {
+            if let src = GPTKSource(url: path) {
+                return src
+            }
+        }
+
+        // 3. If candidate is a directory (such as /Volumes/Game Porting Toolkit), check for nested DMGs
+        var isDir: ObjCBool = false
+        if fm.fileExists(atPath: standard.path, isDirectory: &isDir), isDir.boolValue {
+            if let contents = try? fm.contentsOfDirectory(at: standard, includingPropertiesForKeys: nil) {
+                let dmgs = contents.filter { $0.pathExtension.lowercased() == "dmg" }
+                    .sorted { a, b in
+                        let aEval = a.lastPathComponent.lowercased().contains("evaluation")
+                        let bEval = b.lastPathComponent.lowercased().contains("evaluation")
+                        if aEval != bEval { return aEval }
+                        return a.lastPathComponent < b.lastPathComponent
+                    }
+                for dmg in dmgs {
+                    let dmgBase = dmg.deletingPathExtension().lastPathComponent
+                    if let existing = findMountedVolume(named: dmgBase), let src = resolve(from: existing) {
+                        return src
+                    }
+                    if let mounted = attachDMG(dmg) {
+                        if let src = resolve(from: mounted) {
+                            return src
+                        }
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Every GPTK redist currently mounted under /Volumes (`<volume>/redist/lib/external`),
+    /// plus mounted volumes containing an inner evaluation environment DMG.
     static func detectMounted() -> [GPTKSource] {
         let fm = FileManager.default
         guard let volumes = try? fm.contentsOfDirectory(at: URL(fileURLWithPath: "/Volumes"),
                                                         includingPropertiesForKeys: nil) else { return [] }
-        return volumes
-            .compactMap { GPTKSource(url: $0.appendingPathComponent("redist/lib/external", isDirectory: true)) }
-            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+
+        var results: [GPTKSource] = []
+        var seen = Set<String>()
+
+        // Pass 1: Direct check on all mounted volumes
+        for vol in volumes {
+            if let src = GPTKSource(url: vol.appendingPathComponent("redist/lib/external", isDirectory: true)) {
+                if seen.insert(src.id).inserted { results.append(src) }
+            }
+        }
+
+        // Pass 2: Check mounted volumes that contain an inner evaluation environment DMG
+        // (such as "/Volumes/Game Porting Toolkit" which contains "Evaluation environment...dmg")
+        for vol in volumes {
+            if let src = resolve(from: vol) {
+                if seen.insert(src.id).inserted { results.append(src) }
+            }
+        }
+
+        // Pass 3: Convenience: check ~/Downloads for Evaluation / Game Porting Toolkit DMGs if nothing in /Volumes
+        if results.isEmpty {
+            let downloads = fm.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+            if let files = try? fm.contentsOfDirectory(at: downloads, includingPropertiesForKeys: nil) {
+                let candidates = files.filter { url in
+                    let name = url.lastPathComponent.lowercased()
+                    return url.pathExtension.lowercased() == "dmg" &&
+                           (name.contains("game_porting_toolkit") || name.contains("evaluation"))
+                }
+                for dmg in candidates {
+                    if let src = resolve(from: dmg) {
+                        if seen.insert(src.id).inserted { results.append(src) }
+                    }
+                }
+            }
+        }
+
+        return results.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 }
 

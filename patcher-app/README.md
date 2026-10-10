@@ -32,10 +32,11 @@ MoltenVK **is** bundled (it is Apache-2.0), since the game's Vulkan/DXVK/vkd3d p
 **End users need no developer tools** — the `lib64` rpath is baked into the payload at app-build
 time, so at patch time the app only uses `codesign`, `ditto` and `xattr`, which ship with macOS.
 
-## Mod chain (EFMI) — optional second phase
+## Mod framework (EFMI) — optional second phase
 
-Below the patch flow there is an independent **bottle-side** phase that makes the **XXMI Launcher /
-EFMI** mod stack work: it writes 3DMigoto's own chain-load option,
+A separate **Mod Framework** window — menu bar **Tools → Mod Framework (EFMI)…** — hosts an
+independent **bottle-side** phase that makes the **XXMI Launcher / EFMI** mod stack work: it
+writes 3DMigoto's own chain-load option,
 
 ```ini
 [System]
@@ -46,6 +47,12 @@ into EFMI's `d3dx.ini`, so the mod's `d3d11.dll` hands off to this app's **D3D11
 instead of Wine's wined3d. (Why this is needed at all — 3DMigoto resolves its "original" as
 `C:\Windows\system32\d3d11.dll`, which under CrossOver is wined3d on *every* backend — is
 documented in [docs/mod-injection/](../docs/mod-injection/07-load-ordering-and-chaining.md).)
+
+The window resolves the bottle, EFMI folder and chain target up front, shows them, and applies on
+demand with its **Apply** button — runnable at any time, independently of the main window's
+CrossOver patch (that app only has to exist so the chain has a target). **Revert** undoes it.
+Installing XXMI Launcher + EFMI *into* the bottle is still a manual step done in the bottle itself;
+this window only configures the chain once they are present.
 
 What it does, in order:
 
@@ -155,8 +162,10 @@ game. It requires the user's own licensed CrossOver install as input, and links 
 ```
 Package.swift                     SwiftPM manifest (macOS 13+)
 Sources/FineWinePatcher/
-  FineWinePatcherApp.swift        app entry
-  ContentView.swift               the single-window UI (incl. the Mod chain group box)
+  FineWinePatcherApp.swift        app entry: main window + Tools menu + the Mod Framework window
+  ContentView.swift               the main window UI (the patch flow only)
+  ModChainView.swift              the Mod Framework window: bottle + EFMI discovery, apply/revert chain
+  PatchProgressViews.swift        the shared step-checklist and error views
   PatcherEngine.swift             the patch steps (mirrors swap-into-crossover.sh) + the mod-chain phase
   ModChain.swift                  the mod (EFMI) chain support: backend/bottle/EFMI discovery,
                                   the d3dx.ini [System] proxy_d3d11 edit, verify, revert, state file

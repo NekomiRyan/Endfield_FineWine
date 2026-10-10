@@ -94,9 +94,12 @@ Our scripts (`swap-into-crossover.sh` and `PatcherEngine.swift`) bake `@loader_p
 |---|---|
 | **CrossOver Backend** | `dxmt` (`CX_GRAPHICS_BACKEND=dxmt`) |
 | **Launch Flag** | `-force-d3d11` |
-| **GPTK Patch** | v4 (Game Porting Toolkit 4) |
+| **GPTK Patch** | v4 (Game Porting Toolkit 4) — **highly recommended** |
 | **Upscaling** | **TAAU** or **AMD FSR3** |
 | **Mods (EFMI)** | ✅ Loads and works |
+
+> [!IMPORTANT]
+> **GPTK4 (Game Porting Toolkit v4) is highly recommended.** The performance gains documented here (120fps, 50% RAM reduction) were achieved with the GPTK4 patch installed. Without GPTK4, you may see significantly worse performance and shader translation issues. Mount the Apple "Evaluation environment for Windows games" DMG and use the patcher or `swap-into-crossover.sh` to install it.
 
 ```
 Endfield Engine (DirectX 11, via -force-d3d11)

@@ -7,11 +7,21 @@
 
 ## Frame Rate & Quality Settings
 
-| Mac Tier | Recommended Settings | Expected FPS |
+> **Optimal Backend:** **DXMT (`CX_GRAPHICS_BACKEND=dxmt`) + `-force-d3d11`** with **GPTK4 (highly recommended)**.
+> This drops RAM usage from ~16 GB down to ~8–12 GB (~50% reduction) and dramatically boosts FPS.
+
+| Mac Tier | Configuration | Expected FPS |
 |---|---|---|
-| M4 Pro / M3 Pro / M4 Max (24 GB+) | Medium, 100% render scale | ~60 FPS |
-| Base M1 / M2 / M3 / M4 (16 GB) | Low / Very Low | 30–45 FPS |
+| M4 Pro / M3 Pro / M4 Max (24 GB+) | **Max Settings**, DXMT + `-force-d3d11` + GPTK4 | **~120 FPS** (occasional minor stutters) |
+| M4 Pro / M3 Pro (D3DMetal fallback) | Medium, 100% render scale, D3DMetal | ~60 FPS |
+| Base M1 / M2 / M3 / M4 (16 GB) | Medium / Low, DXMT + `-force-d3d11` + GPTK4 | ~45–60 FPS |
 | MacBook Air (any chip) | ❌ **Not recommended** — see below | — |
+
+> [!WARNING]
+> **Do NOT enable NVIDIA DLSS** in the in-game settings when using DXMT — it causes a complete black screen / broken 3D rendering. Use **TAAU** or **AMD FSR3** instead.
+
+> [!IMPORTANT]
+> **Apple Game Porting Toolkit v4 (GPTK4) is highly recommended.** Without the GPTK4 patch, you may experience shader translation stalls and significantly lower framerates.
 
 For tuning notes specific to 16 GB machines, see [14 — Performance on 16 GB Macs](14-performance-on-16gb-macs.md).
 

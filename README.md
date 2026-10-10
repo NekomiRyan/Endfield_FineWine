@@ -18,8 +18,11 @@ CodeWeavers rated Endfield *"Installs, Will Not Run"* and the community consensu
 
 ## Hardware Specs & Real-World Performance
 
-Tested on an Apple **M4 Pro** (MacBook Pro 12-core, 24 GB), macOS 27.0, CrossOver 26.2/26.3 — **120 FPS on Max settings** using **DXMT + `-force-d3d11`** with GPTK4, ~8–12 GB RAM. ⚠️ **MacBook Air is OFF-LIMITS** (no active cooling). Expect ~90 °C thermals; performance is CPU + RAM bound, not GPU.
+Tested on an Apple **M4 Pro** (MacBook Pro 12-core, 24 GB), macOS 27.0, CrossOver 26.2/26.3 — **120 FPS on Max settings** using **DXMT + `-force-d3d11`** with **GPTK4 (highly recommended)**, ~8–12 GB RAM. ⚠️ **MacBook Air is OFF-LIMITS** (no active cooling). Expect ~90 °C thermals; performance is CPU + RAM bound, not GPU.
 
+> [!IMPORTANT]
+> **Apple Game Porting Toolkit v4 (GPTK4) is highly recommended.** The 120 FPS benchmark and ~50% RAM reduction (~8–12 GB) were achieved with the GPTK4 patch installed. Running without GPTK4 can cause severe stuttering, lower framerates, and shader translation bottlenecks.
+>
 > **⚠️ Do NOT enable NVIDIA DLSS** in the graphics settings — it causes a black screen under DXMT. Use **TAAU** or **AMD FSR3** for upscaling.
 
 ➜ See **[docs/performance.md](docs/performance.md)** for the full breakdown: per-chip FPS targets, thermal behaviour, swap pressure, and optimisation tips.
@@ -58,9 +61,10 @@ git clone <your-fork-url> Endfield_FineWine && cd Endfield_FineWine
                                      #    …then install the Gryphline launcher into it via CrossOver's GUI
 
 open /Applications/CrossOver_Endfield_Patch.app   # 4. run the game — NOT the stock CrossOver app
-                                     #    Set bottle backend to DXMT (CX_GRAPHICS_BACKEND=dxmt)
-                                     #    in the launcher: dropdown next to Start -> "Launch with DirectX 11"
-                                     #    or add -force-d3d11 flag. Do NOT use NVIDIA DLSS — use TAAU or FSR3.
+                                                 #    GPTK4 installed is highly recommended
+                                                 #    Set bottle backend to DXMT (CX_GRAPHICS_BACKEND=dxmt)
+                                                 #    in the launcher: dropdown next to Start -> "Launch with DirectX 11"
+                                                 #    or add -force-d3d11 flag. Do NOT use NVIDIA DLSS — use TAAU or FSR3.
 ```
 
 Full requirements, a manual (auditable) deployment, the bottle/Gryphline setup, and launch options: **[docs/installation.md](docs/installation.md)**.

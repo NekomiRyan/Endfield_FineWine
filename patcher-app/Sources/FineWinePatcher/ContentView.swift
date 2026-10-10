@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var chainPlan: ChainPlan?
     @State private var chainSetupError: String?
     @State private var chainState: ChainState?
+    @State private var manualBottles: [BottleInfo] = []
 
     private let payloadReady = Payload.isComplete
 
@@ -125,6 +126,9 @@ struct ContentView: View {
                         .disabled(engine.isRunning)
                     Button("Rescan", action: refreshGPTK)
                         .disabled(engine.isRunning)
+                    Button("Download…") {
+                        NSWorkspace.shared.open(URL(string: "https://developer.apple.com/games/game-porting-toolkit/")!)
+                    }
                 }
                 Picker("D3DMetal", selection: $selectedGPTK) {
                     Text("Keep CrossOver's bundled D3DMetal").tag(GPTKSource?.none)
@@ -272,24 +276,33 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if bottles.isEmpty {
-                    Text("No CrossOver bottles found.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Picker("Bottle:", selection: $chainBottle) {
-                        ForEach(bottles) { bottle in
-                            Text(bottle.name).tag(Optional(bottle))
-                        }
-                    }
-                    .labelsHidden()
-                    .onChange(of: chainBottle) { _ in refreshChain() }
-
-                    if let bottle = chainBottle {
-                        Text("Backend: \(bottle.backend?.displayName ?? "wined3d (none)") — \(bottle.backend != nil ? "chain possible" : "the default chain is already correct here, nothing to do")")
+                HStack {
+                    if bottles.isEmpty {
+                        Text("No CrossOver bottles found.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    } else {
+                        Picker("Bottle:", selection: $chainBottle) {
+                            ForEach(bottles) { bottle in
+                                Text(bottleDisplayName(bottle)).tag(Optional(bottle))
+                            }
+                        }
+                        .labelsHidden()
+                        .onChange(of: chainBottle) { _ in refreshChain() }
                     }
+                    Spacer()
+                    Button("Choose Bottle…", action: chooseBottle)
+                        .disabled(engine.modIsRunning)
+                }
+
+                if bottles.isEmpty {
+                    Label("No CrossOver bottle found.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else if let bottle = chainBottle {
+                    Text("Backend: \(bottle.backend?.displayName ?? "wined3d (none)") — \(bottle.backend != nil ? "chain possible" : "the default chain is already correct here, nothing to do")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 if let plan = chainPlan {
@@ -334,7 +347,15 @@ struct ContentView: View {
         chainPlan = nil
         chainState = nil
 
-        bottles = BottleInfo.detectAll()
+        // Merge auto-detected bottles with any the user added manually.
+        var detected = BottleInfo.detectAll()
+        let detectedIDs = Set(detected.map { $0.url.standardizedFileURL.path })
+        for manual in manualBottles {
+            if !detectedIDs.contains(manual.url.standardizedFileURL.path) {
+                detected.append(manual)
+            }
+        }
+        bottles = detected.sorted { $0.name < $1.name }
         if chainBottle == nil || !bottles.contains(where: { $0.id == chainBottle?.id }) {
             chainBottle = bottles.first { $0.name == "Arknights Endfield" } ?? bottles.first
         }
@@ -376,6 +397,31 @@ struct ContentView: View {
         }
     }
 
+    private func chooseBottle() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a CrossOver bottle or Bottles folder"
+        panel.message = "Point at a single bottle folder (contains cxbottle.conf) or a Bottles directory containing multiple bottles."
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = URL(fileURLWithPath: "/Volumes")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let found = BottleInfo.bottlesFromManualChoice(url)
+        if found.isEmpty {
+            chainSetupError = "No CrossOver bottles found at \(url.path) — expected a folder containing cxbottle.conf, or a Bottles directory."
+            return
+        }
+        chainSetupError = nil
+        manualBottles.append(contentsOf: found)
+        refreshChain()
+        // Auto-select the first newly added bottle.
+        if let first = found.first {
+            chainBottle = first
+            refreshChain()
+        }
+    }
+
     private func chooseImporter() {
         let panel = NSOpenPanel()
         panel.title = "Choose the EFMI folder"
@@ -388,6 +434,17 @@ struct ContentView: View {
             chainImporterOverride = url
             refreshChain()
         }
+    }
+
+    /// Display name for a bottle — includes the volume name if it's on an external drive.
+    private func bottleDisplayName(_ bottle: BottleInfo) -> String {
+        let parts = bottle.url.standardizedFileURL.pathComponents
+        // If it's under /Volumes/<VolumeName>/..., show the volume name.
+        if parts.count >= 3, parts[1] == "Volumes" {
+            let volume = parts[2]
+            return "\(bottle.name) (\(volume))"
+        }
+        return bottle.name
     }
 
     private var footer: some View {

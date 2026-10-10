@@ -68,21 +68,90 @@ struct BottleInfo: Identifiable, Hashable {
     var name: String { url.lastPathComponent }
 
     static func detectAll() -> [BottleInfo] {
-        let root = bottlesRoot()
         let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else {
-            return []
-        }
-        return entries
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
-            .compactMap { url -> BottleInfo? in
-                let conf = url.appendingPathComponent("cxbottle.conf")
-                guard let text = try? String(contentsOf: conf, encoding: .utf8) else { return nil }
-                return BottleInfo(url: url, backend: ChainBackend.fromBottleConf(text))
+        var seen = Set<String>()   // canonical paths to deduplicate across roots
+        var result: [BottleInfo] = []
+
+        for root in allBottlesRoots() {
+            guard let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else {
+                continue
             }
-            .sorted { $0.name < $1.name }
+            for url in entries {
+                guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+                let canonical = url.standardizedFileURL.path
+                guard !seen.contains(canonical) else { continue }
+                let conf = url.appendingPathComponent("cxbottle.conf")
+                guard let text = try? String(contentsOf: conf, encoding: .utf8) else { continue }
+                seen.insert(canonical)
+                result.append(BottleInfo(url: url, backend: ChainBackend.fromBottleConf(text)))
+            }
+        }
+        return result.sorted { $0.name < $1.name }
     }
 
+    /// All directories that may contain CrossOver bottles: the default home location
+    /// **and** every mounted volume that has a `Library/Application Support/CrossOver/Bottles`
+    /// folder (e.g. an external SSD where the user moved their bottles).
+    static func allBottlesRoots() -> [URL] {
+        let fm = FileManager.default
+        var roots: [URL] = []
+
+        // 1. Standard location under the user's home directory.
+        let home = fm.homeDirectoryForCurrentUser
+        let standard = home.appendingPathComponent("Library/Application Support/CrossOver/Bottles", isDirectory: true)
+        roots.append(standard)
+
+        // 2. Scan mounted volumes for CrossOver bottle directories.
+        //    Covers external SSDs, secondary APFS volumes, NAS mounts, etc.
+        if let volumes = try? fm.contentsOfDirectory(at: URL(fileURLWithPath: "/Volumes"),
+                                                      includingPropertiesForKeys: [.isDirectoryKey]) {
+            for volume in volumes {
+                // Skip the boot volume — it's already covered by the standard path.
+                let volPath = volume.standardizedFileURL.path
+                if volPath == "/" { continue }
+                // CrossOver bottles on external drives are typically stored under the volume's
+                // own Library or under the user's home-like subtree.
+                let candidates = [
+                    volume.appendingPathComponent("Library/Application Support/CrossOver/Bottles", isDirectory: true),
+                    volume.appendingPathComponent("CrossOver/Bottles", isDirectory: true),
+                    // Some users simply keep their Bottles directory at the volume root.
+                    volume.appendingPathComponent("Bottles", isDirectory: true),
+                ]
+                for candidate in candidates {
+                    var isDir: ObjCBool = false
+                    if fm.fileExists(atPath: candidate.path, isDirectory: &isDir), isDir.boolValue {
+                        roots.append(candidate)
+                    }
+                }
+            }
+        }
+
+        return roots
+    }
+
+    /// Validate a manually-chosen directory as a bottle (it must contain `cxbottle.conf`),
+    /// or as a bottles root (a directory whose children contain `cxbottle.conf`).
+    /// Returns the bottles found — the caller decides how to merge them.
+    static func bottlesFromManualChoice(_ url: URL) -> [BottleInfo] {
+        let fm = FileManager.default
+        // Case 1: the user pointed directly at a single bottle folder.
+        let conf = url.appendingPathComponent("cxbottle.conf")
+        if let text = try? String(contentsOf: conf, encoding: .utf8) {
+            return [BottleInfo(url: url, backend: ChainBackend.fromBottleConf(text))]
+        }
+        // Case 2: the user pointed at a Bottles root — scan its children.
+        guard let entries = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey]) else {
+            return []
+        }
+        return entries.compactMap { child -> BottleInfo? in
+            guard (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { return nil }
+            let childConf = child.appendingPathComponent("cxbottle.conf")
+            guard let text = try? String(contentsOf: childConf, encoding: .utf8) else { return nil }
+            return BottleInfo(url: child, backend: ChainBackend.fromBottleConf(text))
+        }
+    }
+
+    /// The default home bottles root (kept for backward compatibility).
     static func bottlesRoot() -> URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         return home.appendingPathComponent("Library/Application Support/CrossOver/Bottles", isDirectory: true)

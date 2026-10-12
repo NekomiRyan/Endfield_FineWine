@@ -14,7 +14,7 @@ How to get **Arknights: Endfield** running on an Apple Silicon Mac with the patc
 | **Homebrew** | [brew.sh](https://brew.sh) (Apple Silicon, `/opt/homebrew`) |
 | **The game** | A licensed Arknights: Endfield, installed via the Gryphline launcher into a CrossOver bottle. |
 | **Disk / time** | ~5 GB for the build tree; the build takes ~20–60 min. |
-| **GPTK4** *(highly recommended)* | Apple's Game Porting Toolkit 4 for best performance (120 FPS, ~50% less RAM) — see [technical.md](technical.md). |
+| **GPTK4** *(optional — D3DMetal backend only)* | Apple's Game Porting Toolkit 4. Updates D3DMetal but does not affect the DXMT rendering path — see [technical.md](technical.md) and [#38](https://github.com/stoicswe/Endfield_FineWine/issues/38). |
 
 ## 1. Build the patched Wine
 

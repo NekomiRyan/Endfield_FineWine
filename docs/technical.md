@@ -94,12 +94,12 @@ Our scripts (`swap-into-crossover.sh` and `PatcherEngine.swift`) bake `@loader_p
 |---|---|
 | **CrossOver Backend** | `dxmt` (`CX_GRAPHICS_BACKEND=dxmt`) |
 | **Launch Flag** | `-force-d3d11` |
-| **GPTK Patch** | v4 (Game Porting Toolkit 4) — **highly recommended** |
+| **GPTK Patch** | Optional — GPTK4 updates D3DMetal but DXMT ships its own translation layer and does not load D3DMetal (see [#38](https://github.com/stoicswe/Endfield_FineWine/issues/38)) |
 | **Upscaling** | **TAAU** or **AMD FSR3** |
 | **Mods (EFMI)** | ✅ Loads and works |
 
 > [!IMPORTANT]
-> **GPTK4 (Game Porting Toolkit v4) is highly recommended.** The performance gains documented here (120fps, 50% RAM reduction) were achieved with the GPTK4 patch installed. Without GPTK4, you may see significantly worse performance and shader translation issues. Mount the Apple "Evaluation environment for Windows games" DMG and use the patcher or `swap-into-crossover.sh` to install it.
+> **Measured result:** 120 FPS average (in-game counter), 4K output with CrossOver High Resolution Mode on, TAAU upscaling, max quality, in-game FPS cap 120, Apple M4 Pro 24 GB, same scene throughout. The cause of the speedup has not been identified. GPTK4 was installed during testing, but DXMT ships its own `d3d11.dll`/`dxgi.dll`/`winemetal.dll`/`nvngx.dll` and does not load D3DMetal, so swapping GPTK3→GPTK4 should not affect the DXMT rendering path ([#38](https://github.com/stoicswe/Endfield_FineWine/issues/38)). GPTK4 remains relevant if you use the **D3DMetal** backend.
 
 ```
 Endfield Engine (DirectX 11, via -force-d3d11)
@@ -115,40 +115,41 @@ Metal Framework / Apple Silicon GPU
 
 | Backend | Flag | Rendering | Mods (EFMI) | Performance | Notes |
 |---|---|---|---|---|---|
-| **DXMT** | `-force-d3d11` | ✅ Full 3D | ✅ Working | ⭐ Best | **Recommended.** Smooth, fast, with GPTK4 patch |
-| **D3DMetal** | `-force-metal` | ✅ Full 3D | ✅ Working | 🔶 Slower | Works but noticeably lower FPS than DXMT path |
-| **D3DMetal** | `-force-d3d11` | ✅ Full 3D | ✅ Working | 🔶 OK | Functional but DXMT outperforms it |
+| **DXMT** | `-force-d3d11` | ✅ Full 3D | ✅ Working | ⭐ Best | **Recommended.** Smooth, fast |
+| **D3DMetal** | `-force-metal` | ✅ Full 3D | ⚠️ unverified | 🔴 Laggy | Renders but seriously laggy / unplayable. Mod compatibility unverified |
+| **D3DMetal** | `-force-d3d11` | ✅ Full 3D | ✅ Working | 🔶 OK | Functional |
 | **DXMT** | *(no flag)* | ⚠️ 2D only | ❌ N/A | N/A | Black/grey screen — no 3D rendering without flag |
 | **DXVK** | `-force-d3d11` | ⚠️ Partial | ❌ Fails | 🔴 Slow | Heavy shader compilation stutter, EFMI won't load |
 | **DirectX 12** | N/A | ❌ Broken | ❌ N/A | N/A | `Cannot load DXIL conversion library` — white screen |
 
-### ⚠️ Critical: NVIDIA DLSS Causes Black Screen
+### ⚠️ Critical: NVIDIA DLSS Causes Black Screen (stock DXMT nightly)
 
-> **Do NOT enable NVIDIA DLSS in the in-game graphics settings.**
+> **Do NOT enable NVIDIA DLSS in the in-game graphics settings when using stock DXMT nightly builds.**
 >
-> Selecting NVIDIA DLSS as the upscaling method completely breaks 3D rendering under DXMT, resulting in a full black screen. This is because DLSS requires actual NVIDIA hardware tensor cores — the MetalFX "spoof" that D3DMetal provides is not available through the DXMT code path.
+> Selecting NVIDIA DLSS as the upscaling method completely breaks 3D rendering under stock DXMT nightly, resulting in a full black screen. This is because DLSS requires actual NVIDIA hardware tensor cores — the MetalFX "spoof" that D3DMetal provides is not available through the stock DXMT code path.
 >
-> **Safe upscaling options:**
+> **Note:** A user has reported MetalFX working with locally patched DXMT NGX/winemetal files (see [#36 discussion](https://github.com/stoicswe/Endfield_FineWine/issues/36)). This is not a general fix and requires manual DXMT source modifications.
+>
+> **Safe upscaling options (stock DXMT):**
 > - **TAAU** (Temporal Anti-Aliasing Upscaling) — built into the engine, zero external dependencies
 > - **AMD FSR3** (FidelityFX Super Resolution 3) — shader-based, works on any GPU
 
 ### Why DXMT + `-force-d3d11` Wins
 
 1. **Thinner translation layer:** DXMT maps D3D11 API calls almost 1:1 to Metal, avoiding the heavier abstraction that D3DMetal introduces.
-2. **GPTK4 synergy:** The Game Porting Toolkit v4 patch improves Metal shader compilation and resource management, which benefits DXMT's direct pipeline more than D3DMetal's internal pipeline.
-3. **Mod compatibility:** EFMI's 3DMigoto `d3d11.dll` wrapper correctly chains through DXMT's D3D11 implementation, meaning the proxy → real-d3d11 handoff works cleanly.
-4. **Stable frame pacing:** No shader compilation stutter (unlike DXVK), and frame times are consistent.
-5. **Dramatically lower memory usage:** DXMT uses ~8–12 GB RAM vs D3DMetal's ~16 GB — up to a **50% reduction** — making the game viable on 16 GB machines with headroom to spare.
+2. **Mod compatibility:** EFMI's 3DMigoto `d3d11.dll` wrapper correctly chains through DXMT's D3D11 implementation, meaning the proxy → real-d3d11 handoff works cleanly.
+3. **Stable frame pacing:** No shader compilation stutter (unlike DXVK), and frame times are consistent.
+4. **Dramatically lower memory usage:** DXMT uses ~8–12 GB RAM vs D3DMetal's ~16 GB — up to a **50% reduction** — making the game viable on 16 GB machines with headroom to spare.
 
 ### Measured Performance (October 2026)
 
 | Metric | D3DMetal (`-force-metal`) | DXMT (`-force-d3d11`) |
 |---|---|---|
 | **RAM Usage** | ~16 GB | ~8–12 GB (fluctuates) |
-| **Max Settings FPS** | Playable but lower | **120 fps** |
-| **Shader Stutters** | Occasional | Occasional (less frequent) |
-| **Upscaling** | DLSS spoof (MetalFX) | TAAU / FSR3 only |
-| **Mod Support** | ✅ | ✅ |
+| **Max Settings FPS** | Laggy / unplayable | **120 fps** (see note above) |
+| **Shader Stutters** | Severe | Occasional (less frequent) |
+| **Upscaling** | DLSS spoof (MetalFX) | TAAU / FSR3 only (stock DXMT nightly) |
+| **Mod Support** | ⚠️ unverified | ✅ |
 | **CPU Cores Used** | ~4 cores | ~4 cores |
 
 > [!NOTE]

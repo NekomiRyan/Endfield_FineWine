@@ -7,21 +7,21 @@
 
 ## Frame Rate & Quality Settings
 
-> **Optimal Backend:** **DXMT (`CX_GRAPHICS_BACKEND=dxmt`) + `-force-d3d11`**.
-> This drops RAM usage from ~16 GB down to ~8–12 GB (~50% reduction) compared to D3DMetal.
+> **Optimal DX11 setup:** **DXMT (`CX_GRAPHICS_BACKEND=dxmt`) + `-force-d3d11`**. DXMT is independent of the D3DMetal/GPTK payload, so GPTK4 is not required for this path.
+> TAAU is the recommended first upscaler on DXMT; avoid NVIDIA DLSS, which can produce a black screen.
 
 | Mac Tier | Configuration | Expected FPS |
 |---|---|---|
-| M4 Pro / M3 Pro / M4 Max (24 GB+) | **Max Settings**, DXMT + `-force-d3d11` | **~120 FPS** (occasional minor stutters) |
+| M4 Pro / M3 Pro / M4 Max (24 GB+) | **Max Settings**, DXMT + `-force-d3d11` + TAAU | **~120 FPS** (occasional minor stutters) |
 | M4 Pro / M3 Pro (D3DMetal fallback) | Medium, 100% render scale, D3DMetal | ~60 FPS |
-| Base M1 / M2 / M3 / M4 (16 GB) | Medium / Low, DXMT + `-force-d3d11` | ~45–60 FPS |
+| Base M1 / M2 / M3 / M4 (16 GB) | Medium / Low, DXMT + `-force-d3d11` + TAAU | ~45–60 FPS |
 | MacBook Air (any chip) | ❌ **Not recommended** — see below | — |
 
 > [!WARNING]
 > **Do NOT enable NVIDIA DLSS** in the in-game settings when using DXMT — it causes a complete black screen / broken 3D rendering. Use **TAAU** or **AMD FSR3** instead.
 
-> [!NOTE]
-> **GPTK4 and DXMT:** GPTK4 was installed during the benchmarks above, but DXMT ships its own translation layer (`d3d11.dll`/`dxgi.dll`/`winemetal.dll`) and does not load D3DMetal, so GPTK3→GPTK4 should not affect DXMT rendering ([#38](https://github.com/stoicswe/Endfield_FineWine/issues/38)). GPTK4 remains relevant if you use the **D3DMetal** backend.
+> [!IMPORTANT]
+> **GPTK4 note:** GPTK4 upgrades the separate D3DMetal backend. It is not loaded by DXMT, so it should not be expected to change DXMT FPS or shader translation behaviour.
 
 For tuning notes specific to 16 GB machines, see [14 — Performance on 16 GB Macs](14-performance-on-16gb-macs.md).
 

@@ -12,6 +12,14 @@ struct PatchError: LocalizedError {
 struct PayloadModule {
     let payloadSubpath: String    // relative to Resources/payload/
     let crossoverSubpath: String  // relative to Contents/SharedSupport/CrossOver/
+    /// true when CrossOver ships no stock copy of this module (e.g. lsass.exe) and we add it.
+    let isNew: Bool
+
+    init(payloadSubpath: String, crossoverSubpath: String, isNew: Bool = false) {
+        self.payloadSubpath = payloadSubpath
+        self.crossoverSubpath = crossoverSubpath
+        self.isNew = isNew
+    }
 }
 
 enum Payload {
@@ -22,9 +30,15 @@ enum Payload {
         // KiUser*Dispatcher int3 spoof
         PayloadModule(payloadSubpath: "x86_64-windows/kernel32.dll",
                       crossoverSubpath: "lib/wine/x86_64-windows/kernel32.dll"),
-        // ntoskrnl.exe em-backports
+        // ntoskrnl.exe em-backports + ACE-CORE DriverInit/return-address fix
         PayloadModule(payloadSubpath: "x86_64-windows/ntoskrnl.exe",
                       crossoverSubpath: "lib/wine/x86_64-windows/ntoskrnl.exe"),
+        // ACE-CORE scans the process list for lsass.exe; stock CrossOver 26.3 ships none, so add it.
+        PayloadModule(payloadSubpath: "x86_64-windows/lsass.exe",
+                      crossoverSubpath: "lib/wine/x86_64-windows/lsass.exe", isNew: true),
+        // Patched wineboot.exe starts the lsass.exe stub at boot.
+        PayloadModule(payloadSubpath: "x86_64-windows/wineboot.exe",
+                      crossoverSubpath: "lib/wine/x86_64-windows/wineboot.exe"),
         // Patched MoltenVK (Vulkan/DXVK/vkd3d paths; replaces CrossOver's bundled copy).
         // Built by scripts/build-moltenvk.sh and baked into the payload by build-app.sh.
         PayloadModule(payloadSubpath: "lib64/libMoltenVK.dylib",
@@ -271,7 +285,9 @@ struct CrossOverInfo {
         version = plist["CFBundleShortVersionString"] as? String
         bundleIdentifier = plist["CFBundleIdentifier"] as? String
         let cxr = url.appendingPathComponent("Contents/SharedSupport/CrossOver")
-        hasWineModules = Payload.modules.allSatisfy {
+        // `isNew` modules (e.g. lsass.exe) are added by us and are absent from stock CrossOver,
+        // so only the modules CrossOver already ships decide whether this looks like a CrossOver app.
+        hasWineModules = Payload.modules.filter { !$0.isNew }.allSatisfy {
             FileManager.default.fileExists(atPath: cxr.appendingPathComponent($0.crossoverSubpath).path)
         }
     }
@@ -391,6 +407,14 @@ final class PatcherEngine: ObservableObject {
         }
     }
 
+    nonisolated static let originalBundleIdentifier = "com.codeweavers.CrossOver"
+    nonisolated static var patchedBundleIdentifier: String {
+        if let env = ProcessInfo.processInfo.environment["BUNDLE_ID"], env.count == originalBundleIdentifier.count {
+            return env
+        }
+        return "com.codeweavers.CrossOvEF"
+    }
+
     private static func stepLabels(includingGPTK: Bool) -> [String] {
         var labels = [
             "Copying CrossOver",
@@ -398,9 +422,11 @@ final class PatcherEngine: ObservableObject {
         ]
         if includingGPTK { labels.append("Installing GPTK4 / D3DMetal") }
         labels += [
+            "Patching bundle ID and launcher seeds",
             "Re-sealing the bundle",
             "Verifying",
             "Moving the patched app into place",
+            "Creating the direct launcher app",
         ]
         return labels
     }
@@ -453,6 +479,10 @@ final class PatcherEngine: ObservableObject {
                 }
 
                 await begin(index)
+                try Self.patchBundleIdentifier(in: app)
+                await finish(index); index += 1
+
+                await begin(index)
                 try Self.resealBundle(app)
                 await finish(index); index += 1
 
@@ -462,6 +492,12 @@ final class PatcherEngine: ObservableObject {
 
                 await begin(index)
                 try Self.moveIntoPlace(app, destination: destination)
+                await finish(index); index += 1
+
+                // Best-effort: a double-clickable "Arknights Endfield.app" that launches the game
+                // directly (the Gryphline launcher's Chromium renderer is broken under Wine).
+                await begin(index)
+                try? Self.createLauncherApp(patchedApp: destination)
                 await finish(index); index += 1
 
                 await MainActor.run {
@@ -525,16 +561,17 @@ final class PatcherEngine: ObservableObject {
             guard fm.fileExists(atPath: src.path) else {
                 throw PatchError("The bundled payload is missing \(module.payloadSubpath).")
             }
-            guard fm.fileExists(atPath: dst.path) else {
+            if fm.fileExists(atPath: dst.path) {
+                // Move the stock module aside under the same backup name the shell script uses, so
+                // the payload lands as a fresh file rather than overwriting a signed one in place.
+                let backup = dst.appendingPathExtension("cxorig")
+                if fm.fileExists(atPath: backup.path) {
+                    try fm.removeItem(at: dst)
+                } else {
+                    try fm.moveItem(at: dst, to: backup)
+                }
+            } else if !module.isNew {
                 throw PatchError("\(module.crossoverSubpath) not found in the copied app — is this really CrossOver \(CrossOverInfo.expectedVersion)?")
-            }
-            // Move the stock module aside under the same backup name the shell script uses, so
-            // the payload lands as a fresh file rather than overwriting a signed one in place.
-            let backup = dst.appendingPathExtension("cxorig")
-            if fm.fileExists(atPath: backup.path) {
-                try fm.removeItem(at: dst)
-            } else {
-                try fm.moveItem(at: dst, to: backup)
             }
             try fm.copyItem(at: src, to: dst)
             // Only the Mach-O modules (ntdll.so, libMoltenVK.dylib) need a signature of their
@@ -544,6 +581,67 @@ final class PatcherEngine: ObservableObject {
                 try run("/usr/bin/codesign", ["--force", "--sign", "-", dst.path])
             }
         }
+    }
+
+    /// Writes a double-clickable `Arknights Endfield.app` next to the patched CrossOver that opens the
+    /// Gryphline launcher (Launcher.exe) via the *direct* wine path, which stays up where the CrossOver
+    /// GUI's Start button crashes it (docs/project-information/15-launcher-qtwebengine-crash.md).
+    /// Rendered from the bundled `LauncherTemplate.sh`, the same source `scripts/make-launcher-app.sh`
+    /// uses. Best-effort. (Direct `Endfield.exe` launching stays in scripts/launch-endfield.sh.)
+    private nonisolated static func createLauncherApp(patchedApp: URL, bottle: String = "Arknights Endfield") throws {
+        let fm = FileManager.default
+        guard let resources = Bundle.main.resourceURL,
+              let template = try? String(contentsOf: resources.appendingPathComponent("LauncherTemplate.sh"),
+                                         encoding: .utf8) else { return }
+
+        let name = "Arknights Endfield"
+        let launcher = patchedApp.deletingLastPathComponent()
+            .appendingPathComponent("\(name).app", isDirectory: true)
+        try? fm.removeItem(at: launcher)
+        let macos = launcher.appendingPathComponent("Contents/MacOS", isDirectory: true)
+        try fm.createDirectory(at: macos, withIntermediateDirectories: true)
+        try fm.createDirectory(at: launcher.appendingPathComponent("Contents/Resources", isDirectory: true),
+                               withIntermediateDirectories: true)
+
+        var script = template
+        for (token, value) in [
+            ("@CX_APP@", patchedApp.path),
+            ("@BUNDLE_ID@", Self.patchedBundleIdentifier),
+            ("@BOTTLE@", bottle),
+            // The alias opens the Gryphline launcher (install/update/play) via the direct wine path,
+            // which stays up where the CrossOver GUI's Start button crashes it. Leave the direct
+            // Endfield.exe launch to scripts/launch-endfield.sh.
+            ("@TARGET@", "C:/Program Files/GRYPHLINK/Launcher.exe"),
+            ("@GFXARGS@", ""),
+        ] { script = script.replacingOccurrences(of: token, with: value) }
+
+        let exe = macos.appendingPathComponent("launcher")
+        try script.write(to: exe, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: exe.path)
+
+        let plist = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+        \t<key>CFBundleName</key><string>\(name)</string>
+        \t<key>CFBundleDisplayName</key><string>\(name)</string>
+        \t<key>CFBundleExecutable</key><string>launcher</string>
+        \t<key>CFBundleIdentifier</key><string>io.github.stoicswe.EndfieldFineWine.launcher</string>
+        \t<key>CFBundleShortVersionString</key><string>1.0</string>
+        \t<key>CFBundleVersion</key><string>1.0</string>
+        \t<key>CFBundlePackageType</key><string>APPL</string>
+        \t<key>LSMinimumSystemVersion</key><string>13.0</string>
+        \t<key>LSUIElement</key><true/>
+        \t<key>NSHighResolutionCapable</key><true/>
+        </dict>
+        </plist>
+        """
+        let plistURL = launcher.appendingPathComponent("Contents/Info.plist")
+        try plist.write(to: plistURL, atomically: true, encoding: .utf8)
+        _ = try? run("/usr/bin/plutil", ["-lint", "-s", plistURL.path])
+        _ = try? run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", launcher.path])
+        _ = try? run("/usr/bin/codesign", ["--force", "--sign", "-", launcher.path])
     }
 
     /// Installs Apple's GPTK4 / D3DMetal (the user's own mounted DMG) over CrossOver's bundled
@@ -688,11 +786,110 @@ final class PatcherEngine: ObservableObject {
               data.range(of: needle) != nil else {
             throw PatchError("ntdll.so is missing the lib64 rpath — D3DMetal would not work. Rebuild the patcher with scripts/build-app.sh (it adds the rpath to the payload).")
         }
+        // Verify bundle identifier
+        let infoPlist = app.appendingPathComponent("Contents/Info.plist")
+        guard let plistData = try? Data(contentsOf: infoPlist),
+              let plist = (try? PropertyListSerialization.propertyList(from: plistData, format: nil)) as? [String: Any],
+              let bid = plist["CFBundleIdentifier"] as? String,
+              bid == patchedBundleIdentifier else {
+            throw PatchError("The patched app's CFBundleIdentifier was not set to \(patchedBundleIdentifier).")
+        }
+
         // The whole bundle must verify, or macOS reports it as damaged and kills its binaries.
         do {
             try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
         } catch {
             throw PatchError("The patched app's signature does not verify, so macOS would refuse to run it. \(error.localizedDescription)")
+        }
+    }
+
+    /// Patches the app's CFBundleIdentifier in Info.plist to `com.codeweavers.CrossOvEF`
+    /// and patches the seed launcher templates (`Contents/Resources/Menu Helper.cpbz2`
+    /// and `Bottle Helper.cpbz2`) so that launcher app bundles created by this patched
+    /// CrossOver will reference its bundle ID and always launch with the patched version.
+    private nonisolated static func patchBundleIdentifier(in app: URL) throws {
+        let fm = FileManager.default
+        let infoPlist = app.appendingPathComponent("Contents/Info.plist")
+        guard fm.fileExists(atPath: infoPlist.path) else {
+            throw PatchError("Info.plist not found in staged app.")
+        }
+        guard let data = try? Data(contentsOf: infoPlist),
+              var plist = (try? PropertyListSerialization.propertyList(from: data, options: .mutableContainersAndLeaves, format: nil)) as? [String: Any] else {
+            throw PatchError("Failed to parse Info.plist in staged app.")
+        }
+        plist["CFBundleIdentifier"] = patchedBundleIdentifier
+        let newData = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try newData.write(to: infoPlist, options: .atomic)
+
+        let resDir = app.appendingPathComponent("Contents/Resources", isDirectory: true)
+        let helpers = ["Menu Helper", "Bottle Helper"]
+        for helper in helpers {
+            let cpbz2 = resDir.appendingPathComponent("\(helper).cpbz2")
+            guard fm.fileExists(atPath: cpbz2.path) else { continue }
+            let tmpDir = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: resDir, create: true)
+            defer { try? fm.removeItem(at: tmpDir) }
+
+            // Extract cpbz2
+            try run("/bin/sh", ["-c", "cd '\(tmpDir.path)' && bzip2 -dc '\(cpbz2.path)' | cpio -idm 2>/dev/null"])
+
+            // Patch Info.plist if present in helper
+            let helperPlist = tmpDir.appendingPathComponent("Contents/Info.plist")
+            if fm.fileExists(atPath: helperPlist.path),
+               let hData = try? Data(contentsOf: helperPlist),
+               var hPlist = (try? PropertyListSerialization.propertyList(from: hData, options: .mutableContainersAndLeaves, format: nil)) as? [String: Any] {
+                if var secPolicy = hPlist["NSUpdateSecurityPolicy"] as? [String: Any],
+                   var allowProc = secPolicy["AllowProcesses"] as? [String: [String]] {
+                    for (k, arr) in allowProc {
+                        allowProc[k] = arr.map { $0 == originalBundleIdentifier ? patchedBundleIdentifier : $0 }
+                    }
+                    secPolicy["AllowProcesses"] = allowProc
+                    hPlist["NSUpdateSecurityPolicy"] = secPolicy
+                    if let newHData = try? PropertyListSerialization.data(fromPropertyList: hPlist, format: .xml, options: 0) {
+                        try? newHData.write(to: helperPlist, options: .atomic)
+                    }
+                }
+            }
+
+            // Patch Mach-O binary
+            let bin = tmpDir.appendingPathComponent("Contents/MacOS/\(helper)")
+            if fm.fileExists(atPath: bin.path) {
+                var binData = try Data(contentsOf: bin)
+                guard let target = (originalBundleIdentifier + "\0").data(using: .utf8),
+                      let replacement = (patchedBundleIdentifier + "\0").data(using: .utf8),
+                      target.count == replacement.count else {
+                    throw PatchError("Invalid bundle ID replacement length for \(helper).")
+                }
+                var replaced = false
+                while let range = binData.range(of: target) {
+                    binData.replaceSubrange(range, with: replacement)
+                    replaced = true
+                }
+                if replaced {
+                    try binData.write(to: bin, options: .atomic)
+                    // Sign outside Contents so codesign treats this as a Mach-O, not an app
+                    // bundle. CrossOver changes the helper's plist/resources when it creates
+                    // a launcher, so the seed must not seal either of them.
+                    let looseBin = tmpDir.appendingPathComponent(".\(helper).signing")
+                    try fm.moveItem(at: bin, to: looseBin)
+                    try run("/usr/bin/codesign", ["--force", "--sign", "-", "--options", "runtime",
+                                                  "--timestamp=none", "--identifier", "com.codeweavers.CrossOver.\(helper)",
+                                                  looseBin.path])
+                    try fm.moveItem(at: looseBin, to: bin)
+                    for sealPath in ["Contents/_CodeSignature", "Contents/CodeResources"] {
+                        let bundleSeal = tmpDir.appendingPathComponent(sealPath)
+                        if fm.fileExists(atPath: bundleSeal.path) { try fm.removeItem(at: bundleSeal) }
+                    }
+                }
+            }
+
+            // Repack cpbz2
+            let tmpCpbz2 = tmpDir.appendingPathComponent("\(helper).cpbz2.tmp")
+            try run("/bin/sh", ["-c", "cd '\(tmpDir.path)' && find . | cpio -o -H odc 2>/dev/null | bzip2 -c > '\(tmpCpbz2.path)'"])
+            guard fm.fileExists(atPath: tmpCpbz2.path) else {
+                throw PatchError("Failed to repack \(helper).cpbz2.")
+            }
+            try fm.removeItem(at: cpbz2)
+            try fm.moveItem(at: tmpCpbz2, to: cpbz2)
         }
     }
 

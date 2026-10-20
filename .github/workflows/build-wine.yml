@@ -377,6 +377,22 @@ jobs:
           MOLTENVK_DIR: ${{ github.workspace }}/moltenvk
         run: ./patcher-app/scripts/build-app.sh
 
+      - name: Verify the requested Patcher.app version
+        if: ${{ inputs.app_version != '' }}
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ inputs.app_version }}
+        run: |
+          set -euo pipefail
+          APP="patcher-app/build/FineWine Patcher.app"
+          short="$(plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist")"
+          build="$(plutil -extract CFBundleVersion raw -o - "$APP/Contents/Info.plist")"
+          if [ "$short" != "$EXPECTED_VERSION" ] || [ "$build" != "$EXPECTED_VERSION" ]; then
+            echo "::error::FineWine Patcher version mismatch — expected $EXPECTED_VERSION, got CFBundleShortVersionString=$short and CFBundleVersion=$build"
+            exit 1
+          fi
+          echo "FineWine Patcher version: $short"
+
       - name: Package Patcher.app zip
         shell: bash
         run: |

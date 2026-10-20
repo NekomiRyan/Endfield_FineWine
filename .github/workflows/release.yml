@@ -150,6 +150,45 @@ jobs:
           name: launcher-app
           path: dl/launcher
 
+      # The release version is the source of truth: verify the artifact before publishing.
+      - name: Verify the release version in FineWine Patcher.app
+        env:
+          EXPECTED_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          APP="$(find dl/app -name '*.zip' | head -n1)"
+          [ -n "$APP" ] || { echo "::error::no Patcher.app zip in the patcher-app artifact"; exit 1; }
+
+          python3 - <<'PY'
+          import plistlib
+          import pathlib
+          import sys
+          import zipfile
+          import os
+
+          expected = os.environ["EXPECTED_VERSION"]
+          app = next(
+              path for path in sorted(pathlib.Path("dl/app").glob("*.zip"))
+          )
+          with zipfile.ZipFile(app) as bundle:
+              name = next(
+                  name for name in bundle.namelist()
+                  if name.endswith("FineWine Patcher.app/Contents/Info.plist")
+              )
+              plist = plistlib.loads(bundle.read(name))
+
+          short = plist.get("CFBundleShortVersionString")
+          build = plist.get("CFBundleVersion")
+          if short != expected or build != expected:
+              print(
+                  f"::error::FineWine Patcher version mismatch — expected {expected}, "
+                  f"got CFBundleShortVersionString={short} and CFBundleVersion={build}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          print(f"FineWine Patcher version: {short}")
+          PY
+
       - name: Assemble release assets
         shell: bash
         run: |

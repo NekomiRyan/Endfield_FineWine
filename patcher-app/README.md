@@ -76,8 +76,9 @@ by the patcher.
 
 ## Mod chain (EFMI) — optional second phase
 
-Below the patch flow there is an independent **bottle-side** phase that makes the **XXMI Launcher /
-EFMI** mod stack work: it writes 3DMigoto's own chain-load option,
+Open **Tools → Mod Chain (EFMI)…** from the menu bar. This is an independent **bottle-side**
+tool (it is not shown on the main patch page) that makes the **XXMI Launcher / EFMI** mod stack
+work: it writes 3DMigoto's own chain-load option,
 
 ```ini
 [System]
@@ -197,18 +198,22 @@ game. It requires the user's own licensed CrossOver install as input, and links 
 ```
 Package.swift                     SwiftPM manifest (macOS 13+)
 Sources/FineWinePatcher/
-  FineWinePatcherApp.swift        app entry
-  ContentView.swift               the single-window UI (incl. the Mod chain group box)
+  FineWinePatcherApp.swift        app entry, shared engine, Tools menu, and the Mod Chain window
+  ContentView.swift               the main patch UI (no mod-chain controls)
+  ModChainView.swift              the separate Tools → Mod Chain (EFMI)… window
+  TelemetryPreviewView.swift      the local, non-sending telemetry preview sheet
   PatcherEngine.swift             the patch steps (mirrors swap-into-crossover.sh) + the mod-chain phase
   ModChain.swift                  the mod (EFMI) chain support: backend/bottle/EFMI discovery,
                                   the d3dx.ini [System] proxy_d3d11 edit, verify, revert, state file
   LicensesView.swift              the Licenses window + component metadata
 Tests/FineWinePatcherTests/
   ModChainTests.swift             the mod-chain ini-editing rules (swift test)
+  UsageTelemetryTests.swift       opt-in + telemetry allowlist/preview checks (swift test)
 Resources/licenses/               license texts bundled into the app
 Resources/AppIcon.icns            the app icon (committed; regenerate with make-appicon.sh)
 Resources/appicon/                the icon source art
 scripts/build-app.sh              compile + assemble + payload staging (Wine + MoltenVK) + signing
+scripts/check-telemetry-privacy.py  build-time privacy gate for opt-in telemetry
 scripts/make-appicon.sh           regenerate AppIcon.icns from the source art
 scripts/make-appicon.swift        the icon renderer (ImageIO/Core Graphics)
 build/                            (gitignored) the assembled .app

@@ -33,6 +33,13 @@ struct ContentView: View {
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
         .sheet(isPresented: $showLicenses) { LicensesView() }
+        .sheet(item: $engine.telemetryPrompt, onDismiss: { engine.telemetryPrompt = nil }) { prompt in
+            PatchTelemetryPromptView(
+                prompt: prompt,
+                onSend: { UsageTelemetry.send(prompt) },
+                onFinished: { engine.telemetryPrompt = nil }
+            )
+        }
         .confirmationDialog("CrossOver version mismatch", isPresented: $showVersionWarning, titleVisibility: .visible) {
             Button("Patch Anyway", role: .destructive) {
                 if let destination = pendingDestination, let cx = crossover {
@@ -226,6 +233,10 @@ struct ContentView: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Text("Usage statistics are never sent automatically. After each patch run, a dialog shows the exact anonymous report and asks whether to send it.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button("Licenses…") { showLicenses = true }
                 Spacer()

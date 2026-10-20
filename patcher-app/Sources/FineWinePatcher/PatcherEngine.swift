@@ -318,6 +318,8 @@ final class PatcherEngine: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var patchedApp: URL?
     @Published var errorMessage: String?
+    /// Set after a patch run finishes. The UI presents it with an explicit send/skip choice.
+    @Published var telemetryPrompt: UsageTelemetry.Prompt?
 
     // MARK: Mod (EFMI) chain phase (bottle-side; independent of the app patch above)
 
@@ -444,6 +446,7 @@ final class PatcherEngine: ObservableObject {
         steps = []
         patchedApp = nil
         errorMessage = nil
+        telemetryPrompt = nil
     }
 
     func patch(source: URL, destination: URL, gptk: GPTKSource? = nil, createLauncher: Bool = true) {
@@ -456,6 +459,7 @@ final class PatcherEngine: ObservableObject {
         isRunning = true
         steps = Self.stepLabels(includingGPTK: gptk != nil, includingLauncher: createLauncher)
             .enumerated().map { Step(id: $0.offset, label: $0.element) }
+        let patchStartedAt = Date()
 
         Task.detached(priority: .userInitiated) {
             var current = 0
@@ -512,16 +516,24 @@ final class PatcherEngine: ObservableObject {
                     await finish(index); index += 1
                 }
 
+                let elapsed = Int(Date().timeIntervalSince(patchStartedAt))
+                let prompt = UsageTelemetry.makePatchPrompt(
+                    succeeded: true, gptk: gptk != nil, failedStep: nil, durationSeconds: elapsed)
                 await MainActor.run {
                     self.patchedApp = destination
                     self.isRunning = false
+                    self.telemetryPrompt = prompt
                 }
             } catch {
                 let failed = current
+                let elapsed = Int(Date().timeIntervalSince(patchStartedAt))
+                let prompt = UsageTelemetry.makePatchPrompt(
+                    succeeded: false, gptk: gptk != nil, failedStep: failed, durationSeconds: elapsed)
                 await MainActor.run {
                     if failed < self.steps.count { self.steps[failed].status = .failed }
                     self.errorMessage = error.localizedDescription
                     self.isRunning = false
+                    self.telemetryPrompt = prompt
                 }
             }
         }

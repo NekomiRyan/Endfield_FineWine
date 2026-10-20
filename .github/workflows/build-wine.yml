@@ -335,6 +335,21 @@ jobs:
       - name: Short SHA
         run: echo "SHORT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
 
+      # Privacy gate: fail the build before packaging if anything can be sent without the
+      # post-patch dialog, the preview/allowlist disappears, or the disclosure is lost.
+      - name: Verify telemetry privacy protections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ./patcher-app/scripts/check-telemetry-privacy.py
+
+      - name: Test telemetry confirmation and data minimisation
+        shell: bash
+        working-directory: patcher-app
+        run: |
+          set -euo pipefail
+          swift test --filter UsageTelemetryTests
+
       - name: Download wine modules artifact
         uses: actions/download-artifact@v4
         with:
@@ -390,6 +405,19 @@ jobs:
           | CrossOver source | ${{ env.CX_VER }} |
           | Artifact | `patcher-app` — finewine-patcher-${{ env.CX_VER }}-${{ env.SHORT_SHA }}.zip |
           | Signing | ad-hoc (right-click → Open on first launch) |
+          EOF
+
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Privacy audit
+
+          ✅ There is no telemetry checkbox and nothing is sent automatically.
+          ✅ After each patch run, the app asks whether to send that run's report and shows the
+          exact payload first; only the explicit Send Statistics action posts it.
+          ✅ The build verified the event/metadata allowlists, the HTTPS endpoint, the send/skip
+          dialog, and that the engine cannot send on its own.
+          ✅ Sending opens a thank-you dialog with a confetti celebration.
+          ✅ `patcher-app/README.md` documents what is collected, why it helps, and what is never
+          sent.
           EOF
 
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'

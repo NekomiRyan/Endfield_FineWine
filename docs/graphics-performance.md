@@ -21,7 +21,7 @@ The in-game graphics settings have no API option, and the plain Start button use
 
 The game's Vulkan renderer runs through MoltenVK (Vulkan → Metal), not the bottle's D3DMetal setting, so the MoltenVK in the patched app's `lib64/` decides how well it works:
 
-- **CrossOver's bundled MoltenVK (1.2.10)** renders, but once the game recreates its swapchain (changing FPS or V-Sync does) the window stays black and the game has to be force-closed ([KhronosGroup/MoltenVK#2722](https://github.com/KhronosGroup/MoltenVK/pull/2722)). `swap-into-crossover.sh` downloads 1.4.1 by default, which predates the fix.
+- **CrossOver's bundled MoltenVK (1.2.10)** renders, but once the game recreates its swapchain (changing FPS or V-Sync does) the window stays black and the game has to be force-closed ([KhronosGroup/MoltenVK#2722](https://github.com/KhronosGroup/MoltenVK/pull/2722)). `swap-into-crossover.sh` downloads 1.4.2 by default (set `MVK_VER` to pin another release), which includes the fix.
 - **Stock MoltenVK 1.4.2** fixes the black screen. mary-ext reported three problems that remain ([#22](https://github.com/stoicswe/Endfield_FineWine/issues/22)): teleporting to Snowy Forest can hang the GPU (macOS then kills WindowServer, which logs you out), TAAU/FSR3 artifacts near Recycling Stations, and stutter until Metal's pipeline cache is built.
 - **This repo's patched MoltenVK** (`patches/moltenvk`, ported from [mary-ext's fork](https://github.com/mary-ext/crossover-wine-endfield)) is meant to fix those three. The FineWine Patcher ships it from 1.1.0 on (nightlies included), so you don't need to build it. To build it yourself, use `scripts/build-moltenvk.sh` (needs full Xcode), then `scripts/package.sh` and `scripts/apply-modules.sh`.
 - **After swapping MoltenVK (or changing `MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS`), delete the game's pipeline cache** — `…/LocalLow/Gryphline/Endfield/vulkan_pso_cache.bin` was compiled by the previous module build and can be reused after the change, drawing some meshes with wrong shader/descriptor data (e.g. bushes/grass as odd, stretched polygons). It is not cleared automatically; delete it manually and let the game rebuild it. See [troubleshooting.md → In-game graphics](troubleshooting.md#in-game-graphics).
@@ -36,11 +36,11 @@ Upstream MoltenVK doesn't have two extensions CodeWeavers added to CrossOver's c
 
 CrossOver → select the **Arknights Endfield** bottle → **Advanced Settings → Graphics**:
 
-- **D3DMetal** *(recommended)* — DirectX 11/12 → Metal. With GPTK4, DX12 → Metal 4 is fastest, and it's the only path with **DLSS-via-MetalFX** frame generation. Force the game into **DirectX 12** mode for the full benefit.
-- **DXMT** — good for DirectX 11 titles; also supports the DLSS/MetalFX toggle.
+- **D3DMetal** — DirectX 11/12 → Metal, with DLSS upscaling served by MetalFX. GPTK updates replace this backend's D3DMetal payload.
+- **DXMT** — DirectX 11 → Metal; supports DLSS upscaling through MetalFX when its NGX resource-parameter fix is present (see below).
 - **DXVK** — DirectX 10/11 → Vulkan → MoltenVK (fallback; extra hop, no DLSS).
 
-Also enable **DLSS (MetalFX)** and **MSync** — or let [`scripts/create-bottle.sh`](../scripts/create-bottle.sh) set the backend and both toggles (the `cxbottle.conf` keys are listed in [06-graphics-and-gptk.md → Selecting a backend](06-graphics-and-gptk.md#selecting-a-backend-in-crossover-26)). AVX2 (from Rosetta 2 on macOS 15+, not from GPTK) needs no setting: CrossOver's `wine` wrapper already exports `ROSETTA_ADVERTISE_AVX=1`.
+Enable **MSync**. For DLSS upscaling, enable **DLSS (MetalFX)** with D3DMetal or a DXMT build containing the [NGX resource-parameter fix](technical.md#dlss-under-dxmt-stock-and-patched-builds). With CrossOver 26.3's stock DXMT 0.80, use **TAAU** or **AMD FSR3** until that fix is included; FineWine 1.2.3 preserves the source app's DXMT modules. [`scripts/create-bottle.sh`](../scripts/create-bottle.sh) can set the backend and backend-specific toggle (the `cxbottle.conf` keys are listed in [06-graphics-and-gptk.md → Selecting a backend](06-graphics-and-gptk.md#selecting-a-backend-in-crossover-26)). AVX2 (from Rosetta 2 on macOS 15+, not from GPTK) needs no setting: CrossOver's `wine` wrapper already exports `ROSETTA_ADVERTISE_AVX=1`.
 
 ## Installing GPTK4 (optional)
 

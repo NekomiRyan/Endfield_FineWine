@@ -2,7 +2,7 @@
 
 # Endfield_FineWine — Arknights: Endfield on Apple Silicon
 
-⚠️ These patches for Crossover are provided as-is. While the patches do allow for the Endfield anti-cheat to operator on macOS like it does on windows, it is your choice to use this tool and you therefore take on the risks associated with that.
+⚠️ These patches for Crossover are provided as-is. While the patches do allow for the Endfield anti-cheat to operate on macOS like it does on windows, it is your choice to use this tool and you therefore take on the risks associated with that.
 
 [![Watch on YouTube](./docs/screenshot_2026.09.28.png)](https://www.youtube.com/watch?v=baokvOArBKc)
 
@@ -18,7 +18,12 @@ CodeWeavers rated Endfield *"Installs, Will Not Run"* and the community consensu
 
 ## Hardware Specs & Real-World Performance
 
-Tested on an Apple **M4 Pro** (MacBook Pro 12-core, 24 GB), macOS 27.0, CrossOver 26.2/26.3 — ~**60 FPS on Medium** at 100% render scale. ⚠️ **MacBook Air is OFF-LIMITS** (no active cooling). Expect ~90 °C thermals and a fully maxed CPU on any Mac; performance is CPU + RAM bound, not GPU.
+Tested on an Apple **M4 Pro** (MacBook Pro 12-core, 24 GB), macOS 27.0, CrossOver 26.2/26.3 — **120 FPS on Max settings** using **DXMT + `-force-d3d11`**, ~8–12 GB RAM. ⚠️ **MacBook Air is OFF-LIMITS** (no active cooling). Expect ~90 °C thermals; performance is CPU + RAM bound, not GPU.
+
+> [!IMPORTANT]
+> **GPTK4 is not a DXMT dependency.** DXMT has its own D3D11→Metal implementation and does not load D3DMetal. GPTK4 only changes the separate D3DMetal path; keep it optional when using `CX_GRAPHICS_BACKEND=dxmt`.
+>
+> **DLSS on DXMT depends on the installed DXMT build.** CrossOver 26.3's bundled DXMT 0.80 has an NGX resource-parameter bug that causes a black screen in Endfield; use **TAAU** or **AMD FSR3** with that build. DXMT with the fix proposed in [3Shain/dxmt#235](https://github.com/3Shain/dxmt/pull/235) can run DLSS upscaling through MetalFX. FineWine 1.2.3 does not ship that DXMT fix. See [DLSS compatibility](docs/technical.md#dlss-under-dxmt-stock-and-patched-builds).
 
 ➜ See **[docs/performance.md](docs/performance.md)** for the full breakdown: per-chip FPS targets, thermal behaviour, swap pressure, and optimisation tips.
 
@@ -27,9 +32,11 @@ Tested on an Apple **M4 Pro** (MacBook Pro 12-core, 24 GB), macOS 27.0, CrossOve
 ## Quick Start
 
 ### Using the Patcher.app
-Use the latest available release patcher found on the [releases page](https://github.com/stoicswe/Endfield_FineWine/releases).
+Use the latest available release patcher found on the [releases page](https://github.com/stoicswe/Endfield_FineWine/releases). Releases (and nightlies) also ship **`Arknights.Endfield.app.zip`** — the double-clickable launcher alias — which you can drop next to the patched app.
 
 The patcher can also install **Apple's GPTK4 / D3DMetal** if you mount the *"Evaluation environment for Windows games …"* DMG first — it is never bundled or redistributed, only read from the copy you supply.
+
+It also drops a **double-clickable `Arknights Endfield.app`** next to the patched CrossOver that **opens the Gryphline launcher** through the *direct* wine path — that path stays up where the CrossOver GUI's *Start* button crashes the launcher's Chromium renderer ([docs/15](docs/project-information/15-launcher-qtwebengine-crash.md)). Use it to install/update/play. To start the game **directly** (once installed), use `scripts/launch-endfield.sh`.
 
 ### Manual Build and Installation
 
@@ -51,14 +58,17 @@ git clone <your-fork-url> Endfield_FineWine && cd Endfield_FineWine
 ./scripts/build-wine.sh all          # 1. build the patched Wine (deps -> fetch -> patch -> configure -> build)
 
 ./scripts/swap-into-crossover.sh     # 2. deploy into a copy of CrossOver -> /Applications/CrossOver_Endfield_Patch.app
+                                     #    …and create a double-clickable "Arknights Endfield.app" launcher
 
 ./scripts/create-bottle.sh           # 3. create the "Arknights Endfield" bottle (Win11 64-bit, D3DMetal + DLSS + MSync)
                                      #    …then install the Gryphline launcher into it via CrossOver's GUI
 
 open /Applications/CrossOver_Endfield_Patch.app   # 4. run the game — NOT the stock CrossOver app
-                                     #    in the launcher: dropdown next to Start -> "Launch with DirectX 11"
-                                     #    (the plain Start button uses the game's default Vulkan renderer:
-                                     #    experimental, see docs/graphics-performance.md)
+                                                 #    GPTK4 is optional for DXMT; it upgrades the separate D3DMetal backend
+                                                 #    Set bottle backend to DXMT (CX_GRAPHICS_BACKEND=dxmt)
+                                                 #    in the launcher: dropdown next to Start -> "Launch with DirectX 11"
+                                                 #    or add -force-d3d11 flag. Stock DXMT: use TAAU or FSR3.
+                                                 #    DLSS needs the DXMT NGX fix; see the compatibility note above.
 ```
 
 Full requirements, a manual (auditable) deployment, the bottle/Gryphline setup, and launch options: **[docs/installation.md](docs/installation.md)**.
@@ -69,9 +79,9 @@ Full requirements, a manual (auditable) deployment, the bottle/Gryphline setup, 
 
 Curious about how this works under the hood without cluttering up the setup guide? Read **[docs/technical.md](docs/technical.md)** for the full architectural deep dive, including:
 - **Two novel Rosetta 2 CPU bug fixes:** skipping multi-byte `0F 1F` NOP exception loops and fixing privileged `mov cr3` opcode classification in `signal_x86_64.c`.
-- **dw-proton anti-cheat port:** 17 `ntoskrnl.exe` kernel backports, `KiUser*Dispatcher` int3 spoofer, and high-resolution QPC timing loops.
+- **dw-proton anti-cheat port:** 17 `ntoskrnl.exe` kernel backports, `KiUser*Dispatcher` int3 spoofer, and high-resolution QPC timing loops. A further `ace-core/` set adds the 7 new `ntoskrnl.exe` imports the late-2026 `ACE-CORE*.sys` driver requests, **calls `DriverInit` with kernel return-address bits so ACE-CORE's entry check passes**, and ships an `lsass.exe` stub (see [docs/14](docs/project-information/14-ace-core-regression.md)).
 - **Surgical module swap & dynamic linking:** why only 3 Wine modules are swapped and how `@loader_path/../../../lib64` rpath is injected so D3DMetal can load.
-- **Graphics translation mechanics:** Direct DirectX 11 → Metal pipeline vs broken DX12/Vulkan paths.
+- **Graphics translation mechanics:** DXMT (`-force-d3d11`) is its own D3D11→Metal path; GPTK4/D3DMetal changes do not alter DXMT rendering.
 - Complete subsystem research and milestone reports in [docs/](docs/).
 
 ---

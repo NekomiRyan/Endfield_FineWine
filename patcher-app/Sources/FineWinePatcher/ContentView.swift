@@ -3,7 +3,7 @@ import AppKit
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @EnvironmentObject private var engine: PatcherEngine
+    @EnvironmentObject var engine: PatcherEngine
     @State private var crossover: CrossOverInfo?
     @State private var showLicenses = false
     @State private var showVersionWarning = false
@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var gptkSources: [GPTKSource] = []
     @State private var selectedGPTK: GPTKSource?
     @State private var gptkAutoSelected = false
+    @State private var createLauncher = true
 
     private let payloadReady = Payload.isComplete
 
@@ -20,9 +21,10 @@ struct ContentView: View {
             crossoverBox
             gptkBox
             if !payloadReady { payloadMissingBox }
+            launcherBox
             patchButton
-            if !engine.steps.isEmpty { stepsList }
-            if let error = engine.errorMessage { errorBox(error) }
+            if !engine.steps.isEmpty { StepsListView(steps: engine.steps) }
+            if let error = engine.errorMessage { ErrorBox(message: error) }
             if let patched = engine.patchedApp { successBox(patched) }
             Divider()
             footer
@@ -41,7 +43,7 @@ struct ContentView: View {
         .confirmationDialog("CrossOver version mismatch", isPresented: $showVersionWarning, titleVisibility: .visible) {
             Button("Patch Anyway", role: .destructive) {
                 if let destination = pendingDestination, let cx = crossover {
-                    engine.patch(source: cx.url, destination: destination, gptk: selectedGPTK)
+                    engine.patch(source: cx.url, destination: destination, gptk: selectedGPTK, createLauncher: createLauncher)
                 }
                 pendingDestination = nil
             }
@@ -110,13 +112,16 @@ struct ContentView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("GPTK4 / D3DMetal (optional)")
+                    Text("Apple GPTK")
                         .font(.callout.weight(.medium))
                     Spacer()
                     Button("Choose…", action: chooseGPTKFolder)
                         .disabled(engine.isRunning)
                     Button("Rescan", action: refreshGPTK)
                         .disabled(engine.isRunning)
+                    Button("Download…") {
+                        NSWorkspace.shared.open(URL(string: "https://developer.apple.com/games/game-porting-toolkit/")!)
+                    }
                 }
                 Picker("D3DMetal", selection: $selectedGPTK) {
                     Text("Keep CrossOver's bundled D3DMetal").tag(GPTKSource?.none)
@@ -133,6 +138,14 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(4)
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard !engine.isRunning, let url = urls.first else { return false }
+            if let src = GPTKSource.resolve(from: url) {
+                selectGPTK(src)
+                return true
+            }
+            return false
         }
     }
 
@@ -172,6 +185,21 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var launcherBox: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle("Create a direct launcher app", isOn: $createLauncher)
+                    .disabled(engine.isRunning)
+                Text("Adds a double-clickable “Arknights Endfield.app” next to the patched copy that opens the Gryphline launcher through the direct wine path (the CrossOver GUI's Start button crashes it). Turn this off if you don't want the extra app.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(4)
+        }
+    }
+
     private var patchButton: some View {
         Button(action: startPatch) {
             Text(engine.isRunning ? "Patching…" : "Create Patched Copy…")
@@ -180,47 +208,6 @@ struct ContentView: View {
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .disabled(!payloadReady || engine.isRunning || crossover?.hasWineModules != true)
-    }
-
-    private var stepsList: some View {
-        stepsList(engine.steps)
-    }
-
-    private func stepsList(_ steps: [PatcherEngine.Step]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(steps) { step in
-                HStack(spacing: 8) {
-                    stepIcon(step.status)
-                        .frame(width: 16, height: 16)
-                    Text(step.label)
-                        .font(.callout)
-                        .foregroundStyle(step.status == .pending ? .secondary : .primary)
-                }
-            }
-        }
-        .padding(.leading, 4)
-    }
-
-    @ViewBuilder
-    private func stepIcon(_ status: PatcherEngine.Step.Status) -> some View {
-        switch status {
-        case .pending:
-            Image(systemName: "circle").foregroundStyle(.tertiary)
-        case .running:
-            ProgressView().controlSize(.small)
-        case .done:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .failed:
-            Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
-        }
-    }
-
-    private func errorBox(_ message: String) -> some View {
-        Label(message, systemImage: "xmark.octagon.fill")
-            .font(.caption)
-            .foregroundStyle(.red)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func successBox(_ url: URL) -> some View {
@@ -304,7 +291,7 @@ struct ContentView: View {
         guard panel.runModal() == .OK, let destination = panel.url else { return }
 
         if cx.isExpectedVersion {
-            engine.patch(source: cx.url, destination: destination, gptk: selectedGPTK)
+            engine.patch(source: cx.url, destination: destination, gptk: selectedGPTK, createLauncher: createLauncher)
         } else {
             pendingDestination = destination
             showVersionWarning = true
@@ -335,23 +322,20 @@ struct ContentView: View {
 
     private func chooseGPTKFolder() {
         let panel = NSOpenPanel()
-        panel.title = "Choose the GPTK redist/lib/external folder"
+        panel.title = "Choose GPTK Folder or Disk Image (.dmg)"
+        panel.message = "Point at a mounted volume (e.g. Game Porting Toolkit), an Evaluation Environment .dmg, or the redist/lib/external folder."
+        panel.prompt = "Select"
         panel.canChooseDirectories = true
-        panel.canChooseFiles = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.folder, .diskImage]
         panel.allowsMultipleSelection = false
         panel.directoryURL = URL(fileURLWithPath: "/Volumes")
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        // Accept …/redist/lib/external, its parent redist/lib, redist, or the volume root.
-        let candidates = [
-            url,
-            url.appendingPathComponent("redist/lib/external", isDirectory: true),
-            url.appendingPathComponent("lib/external", isDirectory: true),
-        ]
-        if let source = candidates.compactMap({ GPTKSource(url: $0) }).first {
+        if let source = GPTKSource.resolve(from: url) {
             selectGPTK(source)
         } else {
-            engine.errorMessage = "That folder isn't a GPTK redist — expected D3DMetal.framework and libd3dshared.dylib (…/redist/lib/external)."
+            engine.errorMessage = "Could not find D3DMetal in '\(url.lastPathComponent)'. Expected a GPTK redist folder (…/redist/lib/external) or an Evaluation Environment DMG."
         }
     }
 

@@ -68,21 +68,90 @@ struct BottleInfo: Identifiable, Hashable {
     var name: String { url.lastPathComponent }
 
     static func detectAll() -> [BottleInfo] {
-        let root = bottlesRoot()
         let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else {
-            return []
-        }
-        return entries
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
-            .compactMap { url -> BottleInfo? in
-                let conf = url.appendingPathComponent("cxbottle.conf")
-                guard let text = try? String(contentsOf: conf, encoding: .utf8) else { return nil }
-                return BottleInfo(url: url, backend: ChainBackend.fromBottleConf(text))
+        var seen = Set<String>()   // canonical paths to deduplicate across roots
+        var result: [BottleInfo] = []
+
+        for root in allBottlesRoots() {
+            guard let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else {
+                continue
             }
-            .sorted { $0.name < $1.name }
+            for url in entries {
+                guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+                let canonical = url.standardizedFileURL.path
+                guard !seen.contains(canonical) else { continue }
+                let conf = url.appendingPathComponent("cxbottle.conf")
+                guard let text = try? String(contentsOf: conf, encoding: .utf8) else { continue }
+                seen.insert(canonical)
+                result.append(BottleInfo(url: url, backend: ChainBackend.fromBottleConf(text)))
+            }
+        }
+        return result.sorted { $0.name < $1.name }
     }
 
+    /// All directories that may contain CrossOver bottles: the default home location
+    /// **and** every mounted volume that has a `Library/Application Support/CrossOver/Bottles`
+    /// folder (e.g. an external SSD where the user moved their bottles).
+    static func allBottlesRoots() -> [URL] {
+        let fm = FileManager.default
+        var roots: [URL] = []
+
+        // 1. Standard location under the user's home directory.
+        let home = fm.homeDirectoryForCurrentUser
+        let standard = home.appendingPathComponent("Library/Application Support/CrossOver/Bottles", isDirectory: true)
+        roots.append(standard)
+
+        // 2. Scan mounted volumes for CrossOver bottle directories.
+        //    Covers external SSDs, secondary APFS volumes, NAS mounts, etc.
+        if let volumes = try? fm.contentsOfDirectory(at: URL(fileURLWithPath: "/Volumes"),
+                                                      includingPropertiesForKeys: [.isDirectoryKey]) {
+            for volume in volumes {
+                // Skip the boot volume — it's already covered by the standard path.
+                let volPath = volume.standardizedFileURL.path
+                if volPath == "/" { continue }
+                // CrossOver bottles on external drives are typically stored under the volume's
+                // own Library or under the user's home-like subtree.
+                let candidates = [
+                    volume.appendingPathComponent("Library/Application Support/CrossOver/Bottles", isDirectory: true),
+                    volume.appendingPathComponent("CrossOver/Bottles", isDirectory: true),
+                    // Some users simply keep their Bottles directory at the volume root.
+                    volume.appendingPathComponent("Bottles", isDirectory: true),
+                ]
+                for candidate in candidates {
+                    var isDir: ObjCBool = false
+                    if fm.fileExists(atPath: candidate.path, isDirectory: &isDir), isDir.boolValue {
+                        roots.append(candidate)
+                    }
+                }
+            }
+        }
+
+        return roots
+    }
+
+    /// Validate a manually-chosen directory as a bottle (it must contain `cxbottle.conf`),
+    /// or as a bottles root (a directory whose children contain `cxbottle.conf`).
+    /// Returns the bottles found — the caller decides how to merge them.
+    static func bottlesFromManualChoice(_ url: URL) -> [BottleInfo] {
+        let fm = FileManager.default
+        // Case 1: the user pointed directly at a single bottle folder.
+        let conf = url.appendingPathComponent("cxbottle.conf")
+        if let text = try? String(contentsOf: conf, encoding: .utf8) {
+            return [BottleInfo(url: url, backend: ChainBackend.fromBottleConf(text))]
+        }
+        // Case 2: the user pointed at a Bottles root — scan its children.
+        guard let entries = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey]) else {
+            return []
+        }
+        return entries.compactMap { child -> BottleInfo? in
+            guard (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { return nil }
+            let childConf = child.appendingPathComponent("cxbottle.conf")
+            guard let text = try? String(contentsOf: childConf, encoding: .utf8) else { return nil }
+            return BottleInfo(url: child, backend: ChainBackend.fromBottleConf(text))
+        }
+    }
+
+    /// The default home bottles root (kept for backward compatibility).
     static func bottlesRoot() -> URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         return home.appendingPathComponent("Library/Application Support/CrossOver/Bottles", isDirectory: true)
@@ -150,31 +219,99 @@ enum ModChain {
         app.appendingPathComponent("Contents/SharedSupport/CrossOver", isDirectory: true)
     }
 
-    /// Find the EFMI folder: XXMI Launcher's config first, then its default install location,
-    /// then the user's explicit override. The folder is only valid if it contains d3dx.ini.
-    static func locateImporter(bottle: URL, override: URL?) -> URL? {
-        var candidates: [URL] = []
-        if let override { candidates.append(override) }
-        let users = bottle.appendingPathComponent("drive_c/users")
-        if let entries = try? FileManager.default.contentsOfDirectory(at: users, includingPropertiesForKeys: nil) {
-            for user in entries {
-                let root = user.appendingPathComponent("AppData/Roaming/XXMI Launcher")
-                let cfg = root.appendingPathComponent("XXMI Launcher Config.json")
-                if let data = try? Data(contentsOf: cfg),
-                   let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                   let importers = obj["Importers"] as? [String: Any],
-                   let efmi = importers["EFMI"] as? [String: Any],
-                   let importer = efmi["Importer"] as? [String: Any],
-                   let win = importer["importer_path"] as? String,
-                   !win.isEmpty,
-                   let mac = macPath(forWindowsPath: win, bottle: bottle) {
-                    candidates.append(mac)
+    /// Extract EFMI candidate paths from an XXMI Launcher Config.json file.
+    private static func extractEFMIFromConfig(_ cfg: URL, bottle: URL) -> [URL] {
+        guard let data = try? Data(contentsOf: cfg),
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let importers = obj["Importers"] as? [String: Any],
+              let efmi = importers["EFMI"] as? [String: Any],
+              let importer = efmi["Importer"] as? [String: Any]
+        else { return [] }
+
+        var results: [URL] = []
+        let parentDir = cfg.deletingLastPathComponent()
+
+        // 1. importer_folder (e.g. "EFMI/")
+        if let folder = importer["importer_folder"] as? String, !folder.isEmpty {
+            let trimmed = folder.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.contains(":") {
+                if let mac = macPath(forWindowsPath: trimmed, bottle: bottle) {
+                    results.append(mac)
                 }
-                candidates.append(root.appendingPathComponent("EFMI"))
+            } else {
+                let cleanRel = trimmed.replacingOccurrences(of: "\\", with: "/").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                results.append(parentDir.appendingPathComponent(cleanRel))
             }
         }
+
+        // 2. importer_path (if present)
+        if let win = importer["importer_path"] as? String, !win.isEmpty {
+            if let mac = macPath(forWindowsPath: win, bottle: bottle) {
+                results.append(mac)
+            }
+        }
+
+        return results
+    }
+
+    /// Find the EFMI folder: user's explicit override, XXMI Launcher's config,
+    /// Desktop / portable XXMI installations, default AppData install location,
+    /// or drive_c. The folder is only valid if it contains d3dx.ini.
+    static func locateImporter(bottle: URL, override: URL?) -> URL? {
+        var candidates: [URL] = []
+        let fm = FileManager.default
+
+        if let override {
+            candidates.append(override)
+            candidates.append(override.appendingPathComponent("EFMI"))
+        }
+
+        let driveC = bottle.appendingPathComponent("drive_c")
+        let users = driveC.appendingPathComponent("users")
+
+        // 1. Scan users directories (AppData, Desktop, Downloads, Documents)
+        if let userEntries = try? fm.contentsOfDirectory(at: users, includingPropertiesForKeys: nil) {
+            for user in userEntries {
+                // AppData / Roaming config
+                let roamingRoot = user.appendingPathComponent("AppData/Roaming/XXMI Launcher")
+                let roamingCfg = roamingRoot.appendingPathComponent("XXMI Launcher Config.json")
+                candidates.append(contentsOf: extractEFMIFromConfig(roamingCfg, bottle: bottle))
+                candidates.append(roamingRoot.appendingPathComponent("EFMI"))
+
+                // Check Desktop, Downloads, Documents for Portable XXMI installations
+                for loc in ["Desktop", "Downloads", "Documents"] {
+                    let dir = user.appendingPathComponent(loc)
+                    if let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+                        for item in items {
+                            let name = item.lastPathComponent.lowercased()
+                            if name.contains("xxmi") || name.contains("efmi") {
+                                let cfg = item.appendingPathComponent("XXMI Launcher Config.json")
+                                candidates.append(contentsOf: extractEFMIFromConfig(cfg, bottle: bottle))
+                                candidates.append(item.appendingPathComponent("EFMI"))
+                                candidates.append(item)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Common drive_c roots (e.g. C:\XXMI, C:\EFMI)
+        candidates.append(driveC.appendingPathComponent("XXMI/EFMI"))
+        candidates.append(driveC.appendingPathComponent("XXMI"))
+        candidates.append(driveC.appendingPathComponent("EFMI"))
+        if let cItems = try? fm.contentsOfDirectory(at: driveC, includingPropertiesForKeys: nil) {
+            for item in cItems {
+                let name = item.lastPathComponent.lowercased()
+                if name.contains("xxmi") || name.contains("efmi") {
+                    candidates.append(item.appendingPathComponent("EFMI"))
+                    candidates.append(item)
+                }
+            }
+        }
+
         return candidates.first {
-            FileManager.default.fileExists(atPath: $0.appendingPathComponent("d3dx.ini").path)
+            fm.fileExists(atPath: $0.appendingPathComponent("d3dx.ini").path)
         }
     }
 
@@ -186,7 +323,7 @@ enum ModChain {
 
     /// "C:\Users\me\AppData\...\EFMI" → the mac path inside the bottle, via dosdevices + realpath.
     static func macPath(forWindowsPath win: String, bottle: URL) -> URL? {
-        var p = win.trimmingCharacters(in: .whitespacesAndNewlines)
+        let p = win.trimmingCharacters(in: .whitespacesAndNewlines)
         guard p.count >= 2, p.dropFirst(1).first == ":" else { return nil }
         let drive = String(p[p.startIndex]).lowercased()
         let rest = p.dropFirst(2).replacingOccurrences(of: "\\", with: "/")
@@ -386,11 +523,11 @@ enum ModChain {
     /// - with neither, ours is inserted right after the [System] header.
     @discardableResult
     static func applyChainToIni(_ ini: URL, target: String, backend: String, shortHash: String) throws -> String? {
-        guard var text = try? String(contentsOf: ini, encoding: .utf8) else {
+        guard let text = try? String(contentsOf: ini, encoding: .utf8) else {
             throw PatchError("Could not read \(ini.path)")
         }
         let marker = "\(markerPrefix) backend=\(backend) target_sha256=\(shortHash)"
-        var lines = splitLines(text).filter { !core($0).trimmingCharacters(in: .whitespaces).hasPrefix(markerPrefix) }
+        let lines = splitLines(text).filter { !core($0).trimmingCharacters(in: .whitespaces).hasPrefix(markerPrefix) }
 
         var out: [String] = []
         var inSystem = false
@@ -440,7 +577,7 @@ enum ModChain {
     }
 
     private static func removeChainLines(from text: String, reinsert: String?) -> String {
-        var lines = splitLines(text)
+        let lines = splitLines(text)
         var out: [String] = []
         var insertAt: Int?
         var insertEol = ""

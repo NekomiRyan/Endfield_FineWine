@@ -20,6 +20,13 @@
 # Every option also exists as an environment variable (see --help); a flag always wins over
 # its env var.
 #
+# Env:
+#   SRC_APP    (default /Applications/CrossOver.app)
+#   DEST_APP   (default /Applications/CrossOver_Endfield_Patch.app)
+#   BUNDLE_ID  (default com.codeweavers.CrossOvEF) — 25 chars matching stock CrossOver
+#   GPTK_DIR   (default ~/Downloads/GPTK_4/redist/lib/external)  — set SKIP_GPTK=1 to skip
+#   MVK_VER    (default 1.4.2)                                    — set SKIP_MVK=1 to skip
+#
 # Optional mod (EFMI) chain step — see docs/mod-injection/{07,08}*.md: points EFMI's d3dx.ini
 # [System] proxy_d3d11 at the backend d3d11.dll inside the patched app, so 3DMigoto hands off to
 # CrossOver's D3D11→Metal backend instead of Wine's wined3d (the default chain ends at wined3d).
@@ -31,8 +38,10 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 B="$REPO/build/wine-build64"
 SRC_APP="${SRC_APP:-/Applications/CrossOver.app}"
 DEST_APP="${DEST_APP:-/Applications/CrossOver_Endfield_Patch.app}"
+BUNDLE_ID="${BUNDLE_ID:-com.codeweavers.CrossOvEF}"
+ORIG_BUNDLE_ID="com.codeweavers.CrossOver"
 GPTK_DIR="${GPTK_DIR:-$HOME/Downloads/GPTK_4/redist/lib/external}"
-MVK_VER="${MVK_VER:-1.4.1}"
+MVK_VER="${MVK_VER:-1.4.2}"
 WORK="${TMPDIR:-/tmp}/efw-swap.$$"
 # The app is assembled and sealed here, then moved into place in one step: every modification
 # happens on a fresh copy macOS has never registered, and a half-patched bundle is never visible
@@ -63,6 +72,7 @@ app patch (the Wine-module swap into a copy of CrossOver):
   --src-app PATH          CrossOver to copy (env SRC_APP; default /Applications/CrossOver.app)
   --dest-app PATH         where to write the patched copy (env DEST_APP;
                           default /Applications/CrossOver_Endfield_Patch.app)
+  --bundle-id ID          bundle identifier (env BUNDLE_ID; default com.codeweavers.CrossOvEF)
   --gptk-dir PATH         Apple GPTK4 redist to install (env GPTK_DIR)
   --skip-gptk             don't touch GPTK4/D3DMetal (env SKIP_GPTK=1)
   --skip-mvk              don't refresh MoltenVK (env SKIP_MVK=1)
@@ -117,6 +127,8 @@ while [ "$#" -gt 0 ]; do
     --src-app=*)           SRC_APP="${1#*=}"; shift ;;
     --dest-app)            arg_value "$1" "${2:-}"; DEST_APP="$ARG_VALUE"; shift 2 ;;
     --dest-app=*)          DEST_APP="${1#*=}"; shift ;;
+    --bundle-id)           arg_value "$1" "${2:-}"; BUNDLE_ID="$ARG_VALUE"; shift 2 ;;
+    --bundle-id=*)         BUNDLE_ID="${1#*=}"; shift ;;
     --gptk-dir)            arg_value "$1" "${2:-}"; GPTK_DIR="$ARG_VALUE"; shift 2 ;;
     --gptk-dir=*)          GPTK_DIR="${1#*=}"; shift ;;
     -h|--help)             usage; exit 0 ;;
@@ -176,7 +188,16 @@ swap(){ # src  dst-rel
 }
 swap "$B/dlls/ntdll/ntdll.so"                           "lib/wine/x86_64-unix/ntdll.so"        # Rosetta NOP + priv-instr fixes, NtDelayExecution QPC
 swap "$B/dlls/kernel32/x86_64-windows/kernel32.dll"     "lib/wine/x86_64-windows/kernel32.dll" # KiUser*Dispatcher int3 spoof
-swap "$B/dlls/ntoskrnl.exe/x86_64-windows/ntoskrnl.exe" "lib/wine/x86_64-windows/ntoskrnl.exe" # ntoskrnl em-backports
+swap "$B/dlls/ntoskrnl.exe/x86_64-windows/ntoskrnl.exe" "lib/wine/x86_64-windows/ntoskrnl.exe" # ntoskrnl em-backports + ACE-CORE DriverInit/lsass support
+swap "$B/programs/lsass/x86_64-windows/lsass.exe"       "lib/wine/x86_64-windows/lsass.exe"     # new: ACE-CORE requires a running lsass.exe
+swap "$B/programs/wineboot/x86_64-windows/wineboot.exe" "lib/wine/x86_64-windows/wineboot.exe"  # starts the lsass.exe stub at boot
+# ACE-CORE opens kernel objects for each process token; stock CrossOver's server refuses them
+# (set_object_reference fails with STATUS_INVALID_HANDLE). Our server allows token+directory
+# kernel objects. CrossOver ships the same binary at two paths; replace both.
+swap "$B/server/wineserver"                             "bin/wineserver"
+swap "$B/server/wineserver"                             "CrossOver-Hosted Application/wineserver"
+codesign --force --sign - "$CXR/bin/wineserver" 2>/dev/null || true
+codesign --force --sign - "$CXR/CrossOver-Hosted Application/wineserver" 2>/dev/null || true
 
 # CRITICAL: CrossOver's ntdll dlopens cxcompatdb.so (which applies the CX_GRAPHICS_BACKEND
 # choice per process). cxcompatdb.so needs @rpath/libgnutls.30.dylib from lib64/, and dyld
@@ -245,7 +266,58 @@ else
   cd "$REPO"; rm -rf "$WORK"
 fi
 
-# ---------------------------------------------------------------- 5. sign / unquarantine
+# ---------------------------------------------------------------- 5. patch bundle ID & launcher seeds
+log "Patching bundle ID ($BUNDLE_ID) & seed launcher helper archives"
+[ "${#BUNDLE_ID}" -eq "${#ORIG_BUNDLE_ID}" ] || {
+  echo "ERROR: BUNDLE_ID must be exactly ${#ORIG_BUNDLE_ID} characters (same length as $ORIG_BUNDLE_ID)"
+  exit 1
+}
+
+# Update main Info.plist
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$STAGE/Contents/Info.plist" 2>/dev/null \
+  || defaults write "$STAGE/Contents/Info" CFBundleIdentifier "$BUNDLE_ID"
+ok "CFBundleIdentifier -> $BUNDLE_ID"
+
+# Patch seed launcher helper archives in Contents/Resources
+for helper in "Menu Helper" "Bottle Helper"; do
+  cpbz2="$STAGE/Contents/Resources/$helper.cpbz2"
+  if [ -f "$cpbz2" ]; then
+    hwork="${TMPDIR:-/tmp}/efw-hwork.$$.$RANDOM"
+    mkdir -p "$hwork"
+    (
+      cd "$hwork"
+      bzip2 -dc "$cpbz2" | cpio -idm 2>/dev/null
+      if [ -f "Contents/Info.plist" ]; then
+        sed -i '' "s/$ORIG_BUNDLE_ID/$BUNDLE_ID/g" "Contents/Info.plist" 2>/dev/null || true
+      fi
+      bin="Contents/MacOS/$helper"
+      if [ -f "$bin" ]; then
+        python3 -c "
+with open('$bin', 'rb') as f: data = f.read()
+target = b'$ORIG_BUNDLE_ID\x00'
+rep = b'$BUNDLE_ID\x00'
+if target in data:
+    data = data.replace(target, rep)
+    with open('$bin', 'wb') as f: f.write(data)
+"
+        # Sign the Mach-O outside Contents. Signing it in place makes codesign
+        # seal the template bundle, which CrossOver later customizes.
+        loose_bin=".$helper.signing"
+        mv "$bin" "$loose_bin" || exit 1
+        codesign --force --sign - --options runtime --timestamp=none \
+          --identifier "com.codeweavers.CrossOver.$helper" "$loose_bin" || exit 1
+        mv "$loose_bin" "$bin" || exit 1
+        rm -rf Contents/_CodeSignature Contents/CodeResources
+      fi
+      find . | cpio -o -H odc 2>/dev/null | bzip2 -c > "$cpbz2.tmp"
+      mv -f "$cpbz2.tmp" "$cpbz2"
+    ) || { echo "ERROR: failed to patch $helper seed" >&2; exit 1; }
+    rm -rf "$hwork"
+    ok "patched $helper.cpbz2"
+  fi
+done
+
+# ---------------------------------------------------------------- 6. sign / unquarantine
 # Re-seal the outer bundle ad-hoc rather than just deleting its seal: when the copy carries a
 # com.apple.provenance xattr (e.g. it was made from a shell spawned by a downloaded app instead
 # of Terminal), macOS checks the bundle's signature at first exec, and a missing/broken seal gets
@@ -277,14 +349,15 @@ mv "$STAGE" "$DEST_APP" || { echo "ERROR: couldn't move the patched app into pla
 CXR="$DEST_APP/Contents/SharedSupport/CrossOver"
 ok "installed"
 
-# ---------------------------------------------------------------- 6. verify
+# ---------------------------------------------------------------- 7. verify
 log "Verify"
+echo "  bundle id:  $(plutil -extract CFBundleIdentifier raw "$DEST_APP/Contents/Info.plist" 2>/dev/null || defaults read "$DEST_APP/Contents/Info" CFBundleIdentifier 2>/dev/null)"
 echo "  wineserver: $("$CXR/bin/wineserver" --version 2>&1 | head -1)"
 for f in lib/wine/x86_64-unix/ntdll.so lib/wine/x86_64-windows/kernel32.dll lib/wine/x86_64-windows/ntoskrnl.exe; do
   printf '  %-42s %s bytes\n' "$(basename "$f")" "$(stat -f '%z' "$CXR/$f" 2>/dev/null)"
 done
-echo "  MoltenVK:  $(strings -a "$CXR/lib64/libMoltenVK.dylib" 2>/dev/null | grep -oE '^1\.[0-9]+\.[0-9]+$' | sort -u | head -1)"
-echo "  D3DMetal:  $(plutil -extract CFBundleShortVersionString raw "$CXR/lib64/apple_gptk/external/D3DMetal.framework/Resources/Info.plist" 2>/dev/null)"
+echo "  MoltenVK:   $(strings -a "$CXR/lib64/libMoltenVK.dylib" 2>/dev/null | grep -oE '^1\.[0-9]+\.[0-9]+$' | sort -u | head -1)"
+echo "  D3DMetal:   $(plutil -extract CFBundleShortVersionString raw "$CXR/lib64/apple_gptk/external/D3DMetal.framework/Resources/Info.plist" 2>/dev/null)"
 
 else
   CXR="$MOD_APP/Contents/SharedSupport/CrossOver"
@@ -534,6 +607,15 @@ if [ "${MOD_CHAIN_REVERT:-0}" = "1" ]; then
   mod_chain_revert
 elif [ "${MOD_CHAIN:-0}" = "1" ]; then
   mod_chain_apply
+fi
+
+# ---------------------------------------------------------------- 8. direct-launch app
+# The Gryphline launcher's Chromium renderer is unusable under Wine (docs/project-information/15-*),
+# so ship a double-clickable app that launches the game directly.
+if [ "$DO_APP_PATCH" = "1" ] && [ "${SKIP_LAUNCHER_APP:-0}" != "1" ]; then
+  log "Creating the double-clickable launcher app"
+  "$REPO/scripts/make-launcher-app.sh" --out-dir "$(dirname "$DEST_APP")" --cx-app "$DEST_APP" --force \
+    || warn "launcher app not created (non-fatal; run scripts/make-launcher-app.sh manually)"
 fi
 
 cat <<EOF

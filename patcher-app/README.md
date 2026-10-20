@@ -6,7 +6,12 @@ A minimal macOS app that turns a copy of **CrossOver 26.3** into the patched bui
 
 1. Copies your `CrossOver.app` into a staging folder (the original is never touched).
 2. Swaps in the pre-built patched modules bundled inside the app:
-   * the three Wine modules — `ntdll.so`, `kernel32.dll`, `ntoskrnl.exe`
+   * the Wine modules — `ntdll.so`, `kernel32.dll`, `ntoskrnl.exe`, `lsass.exe`, `wineboot.exe`,
+     and `wineserver` (installed at both `bin/wineserver` and
+     `CrossOver-Hosted Application/wineserver`)
+     (`lsass.exe` is added: stock CrossOver has none, and the new ACE-CORE driver requires it;
+     `wineserver` must be swapped too — its server protocol has to match the patched `ntdll.so`,
+     otherwise every wine process dies with a `version mismatch` before any window appears)
    * `lib64/libMoltenVK.dylib` (built by [`scripts/build-moltenvk.sh`](../scripts/build-moltenvk.sh))
 
    keeping `.cxorig` backups.
@@ -22,6 +27,13 @@ A minimal macOS app that turns a copy of **CrossOver 26.3** into the patched bui
 5. Verifies the swap (sizes, `ntdll.so` signature, the `lib64` rpath D3DMetal needs, the
    installed GPTK4 files if selected, and the bundle signature).
 6. Moves the patched app into place; an existing copy macOS won't let it delete goes to the Trash.
+7. Creates a **double-clickable `Arknights Endfield.app`** next to it that **opens the Gryphline
+   launcher** through the *direct* wine path. That path stays up where the CrossOver app's bottle
+   *Start* button crashes the launcher's Chromium renderer
+   ([docs/project-information/15](../docs/project-information/15-launcher-qtwebengine-crash.md)).
+   (Direct `Endfield.exe` launching stays in [`scripts/launch-endfield.sh`](../scripts/launch-endfield.sh).)
+   The app is rendered from [`Resources/LauncherTemplate.sh`](Resources/LauncherTemplate.sh) — the same
+   template [`scripts/make-launcher-app.sh`](../scripts/make-launcher-app.sh) uses.
 
 **Apple's Game Porting Toolkit is never bundled or redistributed** (it is evaluation-only
 software). The optional GPTK4 step reads the DMG *you* mounted, under Apple's own license; if
@@ -78,11 +90,11 @@ metadata such as the source IP address, as with any HTTPS request.
 Download totals remain release-host metrics; actual patch usage is measured only from reports the
 user explicitly chooses to send.
 
-## Mod chain (EFMI) — optional second phase
+## Mod framework (EFMI) — optional second phase
 
-Open **Tools → Mod Chain (EFMI)…** from the menu bar. This is an independent **bottle-side**
-tool (it is not shown on the main patch page) that makes the **XXMI Launcher / EFMI** mod stack
-work: it writes 3DMigoto's own chain-load option,
+A separate **Mod Framework** window — menu bar **Tools → Mod Framework (EFMI)…** — hosts an
+independent **bottle-side** phase that makes the **XXMI Launcher / EFMI** mod stack work: it
+writes 3DMigoto's own chain-load option,
 
 ```ini
 [System]
@@ -93,6 +105,12 @@ into EFMI's `d3dx.ini`, so the mod's `d3d11.dll` hands off to this app's **D3D11
 instead of Wine's wined3d. (Why this is needed at all — 3DMigoto resolves its "original" as
 `C:\Windows\system32\d3d11.dll`, which under CrossOver is wined3d on *every* backend — is
 documented in [docs/mod-injection/](../docs/mod-injection/07-load-ordering-and-chaining.md).)
+
+The window resolves the bottle, EFMI folder and chain target up front, shows them, and applies on
+demand with its **Apply** button — runnable at any time, independently of the main window's
+CrossOver patch (that app only has to exist so the chain has a target). **Revert** undoes it.
+Installing XXMI Launcher + EFMI *into* the bottle is still a manual step done in the bottle itself;
+this window only configures the chain once they are present.
 
 What it does, in order:
 
@@ -172,7 +190,7 @@ third-party image libraries), centering the artwork on a transparent square with
 ## Licensing (important if you distribute the built app)
 
 - **The app itself** (Swift sources, UI, this directory): [MIT](../LICENSE).
-- **The bundled Wine modules** (`ntdll.so`, `kernel32.dll`, `ntoskrnl.exe`): **LGPL-2.1-or-later** —
+- **The bundled Wine modules** (`ntdll.so`, `kernel32.dll`, `ntoskrnl.exe`, `lsass.exe`, `wineboot.exe`, `wineserver`): **LGPL-2.1-or-later** —
   they are Wine, built from CodeWeavers' freely published
   [CrossOver 26.3 Wine source](https://www.codeweavers.com/crossover/source) with this repo's
   [patches](../patches/) applied (which include the
@@ -202,11 +220,13 @@ game. It requires the user's own licensed CrossOver install as input, and links 
 ```
 Package.swift                     SwiftPM manifest (macOS 13+)
 Sources/FineWinePatcher/
-  FineWinePatcherApp.swift        app entry, shared engine, Tools menu, and the Mod Chain window
-  ContentView.swift               the main patch UI (no mod-chain controls)
-  ModChainView.swift              the separate Tools → Mod Chain (EFMI)… window
-  PatchTelemetryPromptView.swift   the post-patch send/skip dialog with the exact payload preview
-  TelemetryThankYouView.swift      the post-send thank-you dialog with confetti
+  FineWinePatcherApp.swift        app entry: main window + Tools menu + the Mod Framework window
+  ContentView.swift               the main window UI (the patch flow only)
+  ModChainView.swift              the Mod Framework window: bottle + EFMI discovery, apply/revert chain
+  PatchProgressViews.swift        the shared step-checklist and error views
+  PatchTelemetryPromptView.swift  the post-patch send/skip dialog with the exact payload preview
+  TelemetryThankYouView.swift     the post-send thank-you dialog with confetti
+  UsageTelemetry.swift            per-run report schema, allowlists, and the one send action
   PatcherEngine.swift             the patch steps (mirrors swap-into-crossover.sh) + the mod-chain phase
   ModChain.swift                  the mod (EFMI) chain support: backend/bottle/EFMI discovery,
                                   the d3dx.ini [System] proxy_d3d11 edit, verify, revert, state file

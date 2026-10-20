@@ -29,7 +29,8 @@ on:
         type: string
 
 permissions:
-  contents: write # create/edit the release and its tag
+  contents: write # create/edit the release and its tag, and push the generated PR branch
+  pull-requests: write # create/update the generated issue-template refresh PR
 
 concurrency:
   group: release-${{ github.ref }}
@@ -250,17 +251,19 @@ jobs:
           gh release view "$TAG" --json name,tagName,isPrerelease,assets \
             --jq '{name, tagName, isPrerelease, assets: [.assets[].name]}'
 
-      # Issue-form dropdowns cannot be populated at form-render time, so publish refreshed
-      # full-release options to the default branch. The next form load offers the new release.
-      - name: Refresh issue-template version dropdowns
+      # Issue-form dropdowns cannot be populated at form-render time, and main is protected.
+      # After publishing, open/update a generated PR against main so required checks run there.
+      - name: Open a PR to refresh issue-template version dropdowns
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+          BRANCH: chore/issue-template-versions-${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main
-          git switch --detach FETCH_HEAD
+          git switch -C "$BRANCH" FETCH_HEAD
           python3 .github/scripts/update-issue-version-dropdowns.py
 
           if git diff --quiet -- .github/ISSUE_TEMPLATE; then
@@ -270,8 +273,22 @@ jobs:
 
           git add .github/ISSUE_TEMPLATE
           git commit -m "chore: refresh issue template release versions"
-          git push origin HEAD:main
-          echo "Pushed refreshed version options to \`main\`." >> "$GITHUB_STEP_SUMMARY"
+          git push --force origin "HEAD:refs/heads/$BRANCH"
+
+          existing_url="$(gh pr view "$BRANCH" --json state,url \
+            --jq 'select(.state == "OPEN") | .url' 2>/dev/null || true)"
+          if [ -n "$existing_url" ]; then
+            echo "Updated existing PR: $existing_url"
+            echo "Issue-template refresh PR: $existing_url" >> "$GITHUB_STEP_SUMMARY"
+          else
+            url="$(gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "Refresh issue template release versions" \
+              --body "Automated by the release workflow after publishing a full release. This refreshes the issue-form version dropdowns with the current full, non-nightly release versions. Please merge after the required build checks pass.")"
+            echo "Opened PR: $url"
+            echo "Issue-template refresh PR: $url" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Summary
         shell: bash

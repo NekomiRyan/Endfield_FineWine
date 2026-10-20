@@ -32,14 +32,47 @@ MoltenVK **is** bundled (it is Apache-2.0), since the game's Vulkan/DXVK/vkd3d p
 **End users need no developer tools** — the `lib64` rpath is baked into the payload at app-build
 time, so at patch time the app only uses `codesign`, `ditto` and `xattr`, which ship with macOS.
 
-## Anonymous usage statistics
+## Opt-in anonymous usage statistics
 
-The patcher can report first-run installs, launches, patch attempts/results, and EFMI mod-chain
-results to the project's statistics endpoint. It sends the app version, macOS major version, and
-event-specific technical metadata; it does not send file paths, account data, or identifiers.
-Reporting is enabled by default and can be disabled with **Send anonymous usage statistics** in
-the app footer. Download totals are measured by the release host, while first-run installs and
-actual patch usage are measured by the patcher.
+Usage reporting is **off by default**. Nothing is sent until you explicitly enable
+**Share anonymous usage statistics (optional)** in the patcher footer, and you can turn it off
+again at any time. The toggle is the only consent mechanism; no install or launch event is sent
+before it is enabled.
+
+Use **Preview data…** beside the toggle to inspect the exact JSON request examples, including the
+event names and metadata fields that can be sent. The preview is available whether reporting is
+enabled or disabled, and opening it never sends anything. Opting in does not remove that preview:
+you can reopen it at any time to review what will be sent before deciding to keep reporting
+enabled.
+
+**Why this helps.** Release download counts cannot tell us whether the patch worked, which macOS
+or CrossOver version failed, or which step breaks most often. Opted-in events let us see failure
+rates and timings across real machines, so we can prioritise the compatibility and performance
+fixes that actually affect players.
+
+**What is collected.** Each event contains only:
+
+| Field | Example | Purpose |
+|---|---|---|
+| `app` | `endfield-finewine-patcher` | Identifies the client |
+| `event` | `patch_succeeded`, `patch_failed`, `mod_chain_apply_failed` | What happened |
+| `appVersion` | `1.2.4` | Correlate problems with a release |
+| `osMajor` | `26` | Find macOS-version-specific breakage |
+| `metadata` | `gptk=true`, `backend=dxmt`, `duration_seconds=42`, `failed_step=3` | Diagnose the path and failing step |
+
+The collector is `https://endfield-fine-wine.lovable.app/api/statistics`. The request is a
+best-effort HTTPS POST; there is no retry or offline queue.
+
+Every patcher build runs `scripts/check-telemetry-privacy.py` plus the telemetry unit tests. The
+build fails if telemetry is not off by default, if a launch/install event can be recorded before
+consent, if the event or metadata allowlist grows, or if the user-facing disclosure disappears.
+
+**What is never sent.** File paths, bottle names, game or account data, usernames, hardware
+serials, or a persistent identifier. The statistics server can still observe ordinary network
+metadata such as the source IP address, as with any HTTPS request.
+
+Download totals remain release-host metrics; opted-in installs and actual patch usage are measured
+by the patcher.
 
 ## Mod chain (EFMI) — optional second phase
 

@@ -335,6 +335,21 @@ jobs:
       - name: Short SHA
         run: echo "SHORT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
 
+      # Privacy gate: fail the build before packaging if telemetry drifts away from
+      # opt-in, grows its payload beyond the documented allowlist, or loses its disclosure.
+      - name: Verify telemetry privacy protections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ./patcher-app/scripts/check-telemetry-privacy.py
+
+      - name: Test telemetry opt-in and data minimisation
+        shell: bash
+        working-directory: patcher-app
+        run: |
+          set -euo pipefail
+          swift test --filter UsageTelemetryTests
+
       - name: Download wine modules artifact
         uses: actions/download-artifact@v4
         with:
@@ -390,6 +405,18 @@ jobs:
           | CrossOver source | ${{ env.CX_VER }} |
           | Artifact | `patcher-app` — finewine-patcher-${{ env.CX_VER }}-${{ env.SHORT_SHA }}.zip |
           | Signing | ad-hoc (right-click → Open on first launch) |
+          EOF
+
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Privacy audit
+
+          ✅ Usage telemetry is **opt-in and off by default**.
+          ✅ The build verified the event/metadata allowlists, the HTTPS endpoint, and that
+          launch/install events cannot be recorded before consent.
+          ✅ The app footer and `patcher-app/README.md` document what is collected, why it helps,
+          and what is never sent.
+          ✅ A local, non-sending preview shows the exact request examples whether telemetry is
+          enabled or disabled.
           EOF
 
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'

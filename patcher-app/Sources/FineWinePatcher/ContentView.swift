@@ -6,12 +6,13 @@ struct ContentView: View {
     @StateObject private var engine = PatcherEngine()
     @State private var crossover: CrossOverInfo?
     @State private var showLicenses = false
+    @State private var showTelemetryPreview = false
     @State private var showVersionWarning = false
     @State private var pendingDestination: URL?
     @State private var gptkSources: [GPTKSource] = []
     @State private var selectedGPTK: GPTKSource?
     @State private var gptkAutoSelected = false
-    @AppStorage("finewine.statistics.enabled") private var statisticsEnabled = true
+    @AppStorage("finewine.statistics.enabled") private var statisticsEnabled = false
 
     // Mod (EFMI) chain phase
     @State private var bottles: [BottleInfo] = []
@@ -45,6 +46,7 @@ struct ContentView: View {
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
         .sheet(isPresented: $showLicenses) { LicensesView() }
+        .sheet(isPresented: $showTelemetryPreview) { TelemetryPreviewView() }
         .confirmationDialog("CrossOver version mismatch", isPresented: $showVersionWarning, titleVisibility: .visible) {
             Button("Patch Anyway", role: .destructive) {
                 if let destination = pendingDestination, let cx = crossover {
@@ -394,14 +396,29 @@ struct ContentView: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Send anonymous usage statistics", isOn: $statisticsEnabled)
-                .font(.caption)
-                .onChange(of: statisticsEnabled) { enabled in
-                    UsageTelemetry.setEnabled(enabled)
-                }
-            Text("Reports installs, launches, patch results, and mod-chain results. No file paths or personal data are sent.")
+            HStack(spacing: 8) {
+                Toggle("Share anonymous usage statistics (optional)", isOn: $statisticsEnabled)
+                    .font(.caption)
+                    .onChange(of: statisticsEnabled) { enabled in
+                        UsageTelemetry.setEnabled(enabled)
+                    }
+                Spacer()
+                Button("Preview data…") { showTelemetryPreview = true }
+                    .font(.caption)
+            }
+            Text("""
+            Off by default. When enabled, sends anonymous events containing the event name, \
+            patcher version, macOS major version, selected graphics backend and whether GPTK was \
+            used, plus whether a patch or mod-chain attempt succeeded or failed, including its \
+            duration and failed step. This shows us which macOS, CrossOver, and patch steps fail \
+            most often, so we can prioritise compatibility and performance fixes. Preview data… \
+            is always available before or after opting in, so you can inspect the exact request \
+            examples at any time; opening the preview sends nothing. It never sends file paths, \
+            bottle names, game or account data, or a persistent identifier.
+            """)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button("Licenses…") { showLicenses = true }
                 Spacer()

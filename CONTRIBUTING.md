@@ -134,3 +134,27 @@ Notes:
     mirrors its title, `nightly_<CrossOver version>.<UTC date>_<commit>`, so each snapshot
     keeps its own assets; see
     [`.github/workflows/nightly.yml`](.github/workflows/nightly.yml).
+
+### Discord announcements (optional)
+
+A newly created full release can be announced in Discord, pinging a role. The job is skipped
+when neither transport below is configured, so this stays opt-in.
+
+-   **Discord app (preferred):** create an application in the
+    [Developer Portal](https://discord.com/developers/applications), add a bot, and invite it to
+    your server with **View Channel**, **Send Messages**, **Embed Links**, and **Mention
+    @everyone, @here, and All Roles**. Then set:
+    -   `DISCORD_BOT_TOKEN` — repository secret (Bot tab → Reset Token)
+    -   `DISCORD_CHANNEL_ID` — repository variable (right-click channel with Developer Mode on
+        → Copy Channel ID)
+    If the channel is an Announcement channel, the message is also crossposted to every channel
+    following it.
+-   **Webhook (simpler):** set `DISCORD_WEBHOOK_URL` (channel settings → Integrations →
+    Webhooks). Webhooks cannot crosspost announcement channels, and can only ping a role that
+    has "Allow anyone to @mention this role" enabled.
+-   **Ping target:** set `DISCORD_RELEASE_ROLE_ID` (repository variable) to the role's ID. With
+    the bot transport, its Mention Everyone permission lets it ping non-mentionable roles.
+    Only that role is mentionable in the message — `@everyone`/`@here` are always suppressed.
+
+The announcement reuses the same generated summary as the release body; refreshing an existing
+release tag does not re-post it.

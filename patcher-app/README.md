@@ -32,6 +32,15 @@ MoltenVK **is** bundled (it is Apache-2.0), since the game's Vulkan/DXVK/vkd3d p
 **End users need no developer tools** — the `lib64` rpath is baked into the payload at app-build
 time, so at patch time the app only uses `codesign`, `ditto` and `xattr`, which ship with macOS.
 
+## Anonymous usage statistics
+
+The patcher can report first-run installs, launches, patch attempts/results, and EFMI mod-chain
+results to the project's statistics endpoint. It sends the app version, macOS major version, and
+event-specific technical metadata; it does not send file paths, account data, or identifiers.
+Reporting is enabled by default and can be disabled with **Send anonymous usage statistics** in
+the app footer. Download totals are measured by the release host, while first-run installs and
+actual patch usage are measured by the patcher.
+
 ## Mod chain (EFMI) — optional second phase
 
 Below the patch flow there is an independent **bottle-side** phase that makes the **XXMI Launcher /

@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var gptkSources: [GPTKSource] = []
     @State private var selectedGPTK: GPTKSource?
     @State private var gptkAutoSelected = false
+    @AppStorage("finewine.statistics.enabled") private var statisticsEnabled = true
 
     // Mod (EFMI) chain phase
     @State private var bottles: [BottleInfo] = []
@@ -56,6 +57,7 @@ struct ContentView: View {
             Text("This CrossOver reports version \(crossover?.version ?? "unknown"), but the bundled modules are built against CrossOver \(CrossOverInfo.expectedVersion)'s Wine ABI. Patching a different version will almost certainly not work.")
         }
         .onAppear {
+            UsageTelemetry.setEnabled(statisticsEnabled)
             detectDefaultCrossOver()
             refreshGPTK()
             refreshChain()
@@ -392,6 +394,14 @@ struct ContentView: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Toggle("Send anonymous usage statistics", isOn: $statisticsEnabled)
+                .font(.caption)
+                .onChange(of: statisticsEnabled) { enabled in
+                    UsageTelemetry.setEnabled(enabled)
+                }
+            Text("Reports installs, launches, patch results, and mod-chain results. No file paths or personal data are sent.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             HStack {
                 Button("Licenses…") { showLicenses = true }
                 Spacer()

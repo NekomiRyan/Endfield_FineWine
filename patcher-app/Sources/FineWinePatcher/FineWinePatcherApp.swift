@@ -4,10 +4,6 @@ import SwiftUI
 struct FineWinePatcherApp: App {
     @StateObject private var engine = PatcherEngine()
 
-    init() {
-        UsageTelemetry.recordAppLaunch()
-    }
-
     var body: some Scene {
         WindowGroup {
             ContentView()

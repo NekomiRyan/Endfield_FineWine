@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Build-time privacy guard for the patcher's opt-in usage telemetry.
+"""Build-time privacy guard for the patcher's per-run usage statistics.
 
-This is a static, source-level audit. It complements (and does not replace) the
-UsageTelemetryTests. Keep it simple enough that a failed CI job points directly at
-the guarantee that was broken.
+This is a static, source-level audit. It complements the UsageTelemetryTests and
+checks the product guarantees that are easy to accidentally regress:
+
+* nothing is sent automatically;
+* the only send action is the user's explicit choice in the post-patch dialog;
+* the dialog shows the exact payload before sending;
+* only completed patch runs and allowlisted fields can be reported.
 """
 
 from __future__ import annotations
@@ -14,8 +18,9 @@ from pathlib import Path
 
 APP = Path(__file__).resolve().parents[1]
 TELEMETRY = APP / "Sources/FineWinePatcher/UsageTelemetry.swift"
+ENGINE = APP / "Sources/FineWinePatcher/PatcherEngine.swift"
 CONTENT = APP / "Sources/FineWinePatcher/ContentView.swift"
-PREVIEW = APP / "Sources/FineWinePatcher/TelemetryPreviewView.swift"
+PROMPT = APP / "Sources/FineWinePatcher/PatchTelemetryPromptView.swift"
 README = APP / "README.md"
 SOURCES = APP / "Sources/FineWinePatcher"
 
@@ -40,134 +45,111 @@ def swift_strings(value: str) -> set[str]:
 
 
 telemetry = TELEMETRY.read_text(encoding="utf-8")
+engine = ENGINE.read_text(encoding="utf-8")
 content = CONTENT.read_text(encoding="utf-8")
+prompt = PROMPT.read_text(encoding="utf-8")
 readme = README.read_text(encoding="utf-8")
+all_sources = "\n".join(p.read_text(encoding="utf-8") for p in SOURCES.glob("*.swift"))
 
 print("Telemetry privacy audit")
 
-# 1. Opt-in is the product decision, not a default that can drift back to opt-out.
-is_enabled = block(telemetry, "static var isEnabled: Bool {", "\n    }")
-check("?? false" in is_enabled, "runtime telemetry default is disabled")
-check("?? true" not in is_enabled, "runtime telemetry cannot default to enabled")
+# 1. No persistent toggle and no automatic launch/event recording.
+check("finewine.statistics.enabled" not in all_sources, "there is no persistent telemetry toggle")
+check("recordAppLaunch" not in all_sources, "there is no automatic app-launch reporting")
+check("UsageTelemetry.record(" not in all_sources, "there are no automatic telemetry event calls")
 check(
-    '@AppStorage("finewine.statistics.enabled") private var statisticsEnabled = false'
-    in content,
-    "footer toggle starts disabled",
+    "Toggle(\"Share anonymous usage statistics" not in content,
+    "the main page has no telemetry checkbox",
 )
 
-# 2. No install/launch event may be recorded before consent.
-launch = block(telemetry, "static func recordAppLaunch() {", "\n    }")
+# 2. A prompt is created for both outcomes of a patch run, and only then.
 check(
-    "guard isEnabled else { return }" in launch
-    and launch.index("guard isEnabled") < launch.index("installedKey"),
-    "launch/install recording waits for explicit consent",
+    "makePatchPrompt(\n                    succeeded: true" in engine,
+    "successful patch runs create a send prompt",
+)
+check(
+    "makePatchPrompt(\n                    succeeded: false" in engine,
+    "failed patch runs create a send prompt",
+)
+check(engine.count("self.telemetryPrompt = prompt") == 2, "both patch outcomes set the prompt")
+check(
+    "telemetryPrompt = nil" in block(engine, "func reset() {", "\n    }"),
+    "starting a new patch clears any stale prompt",
 )
 
-# 3. The endpoint must remain HTTPS.
+# 3. The only network send is the user's explicit choice in the prompt.
+send_calls = re.findall(r"UsageTelemetry\.send\(([^)]*)\)", all_sources)
+check(send_calls == ["prompt"], "the only send call is the user's Send Statistics action")
+check("if send { UsageTelemetry.send(prompt) }" in content, "Send Statistics is wired to the dialog choice")
+check("UsageTelemetry.send" not in prompt, "the prompt view itself cannot send before a choice")
+check("UsageTelemetry.send" not in engine, "the patch engine never sends automatically")
+
+# 4. Endpoint and event/metadata allowlists.
 check(
     'URL(string: "https://endfield-fine-wine.lovable.app/api/statistics")!' in telemetry,
     "statistics endpoint uses HTTPS",
 )
-
-# 4. The event schema must stay deliberately small.
-event_struct = block(telemetry, "private struct Event: Encodable {", "\n    }")
-event_fields = set(re.findall(r"let\s+([A-Za-z_][A-Za-z0-9_]*)", event_struct))
-expected_event_fields = {"app", "event", "count", "appVersion", "osMajor", "metadata"}
-check(event_fields == expected_event_fields, "event payload contains only the approved fields")
-
-forbidden_terms = {
-    "path", "file", "bottle", "user", "username", "email", "host", "hostname",
-    "serial", "machine", "token", "password", "secret", "cookie", "ip",
-}
-lower_schema = event_struct.lower()
-check(
-    not any(term in lower_schema for term in forbidden_terms),
-    "event payload contains no path/account/machine identifier fields",
-)
-
-# 5. Metadata is an allowlist and every emitted key is on it.
-metadata_block = block(
-    telemetry, "static let allowedMetadataKeys: Set<String> = [", "\n    ]"
-)
+events_block = re.search(r"allowedEvents: Set<String> = \[(.*?)\]", telemetry, re.S).group(1)
+allowed_events = swift_strings(events_block)
+check(allowed_events == {"patch_succeeded", "patch_failed"}, "only completed patch outcomes are allowed")
+metadata_block = re.search(
+    r"allowedMetadataKeys: Set<String> = \[(.*?)\]", telemetry, re.S
+).group(1)
 allowed_metadata = swift_strings(metadata_block)
-expected_metadata = {"backend", "gptk", "duration_seconds", "failed_step"}
-check(allowed_metadata == expected_metadata, "telemetry metadata allowlist is exact")
+check(
+    allowed_metadata == {"gptk", "duration_seconds", "failed_step"},
+    "telemetry metadata allowlist is exact",
+)
 check(
     "metadata.filter { allowedMetadataKeys.contains($0.key) }" in telemetry,
     "unknown metadata keys are dropped before sending",
 )
-
-emitted_metadata: set[str] = set()
-for swift_file in SOURCES.glob("*.swift"):
-    source = swift_file.read_text(encoding="utf-8")
-    if "UsageTelemetry.record" not in source:
-        continue
-    # Telemetry call sites build their metadata dictionaries locally; collect every
-    # string-keyed entry from those files and require it to be on the allowlist.
-    emitted_metadata |= set(re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)":', source))
 check(
-    emitted_metadata <= allowed_metadata,
-    "all metadata emitted by call sites is allowlisted",
-)
-
-# 6. Event names are allowlisted, and every call site uses an approved name.
-events_block = block(telemetry, "private static let allowedEvents: Set<String> = [", "\n    ]")
-allowed_events = swift_strings(events_block)
-check(
-    "guard isEnabled, allowedEvents.contains(event) else { return }" in telemetry,
+    "guard allowedEvents.contains(prompt.event) else { return }" in telemetry,
     "unknown event names are rejected before sending",
 )
-call_site_events: set[str] = set()
-for swift_file in SOURCES.glob("*.swift"):
-    source = swift_file.read_text(encoding="utf-8")
-    call_site_events |= set(re.findall(r'UsageTelemetry\.record\("([^"]+)"', source))
+
+# 5. The event schema must stay deliberately small.
+event_struct = block(telemetry, "private struct Event: Encodable {", "\n    }")
+event_fields = set(re.findall(r"let\s+([A-Za-z_][A-Za-z0-9_]*)", event_struct))
 check(
-    call_site_events <= allowed_events | {"app_installed", "app_launched"},
-    "all telemetry call sites use an allowlisted event",
+    event_fields == {"app", "event", "count", "appVersion", "osMajor", "metadata"},
+    "event payload contains only the approved fields",
+)
+forbidden_terms = {
+    "path", "file", "bottle", "user", "username", "email", "host", "hostname",
+    "serial", "machine", "token", "password", "secret", "cookie", "ip",
+}
+check(
+    not any(term in event_struct.lower() for term in forbidden_terms),
+    "event payload contains no path/account/machine identifier fields",
 )
 
-# 7. The user can inspect the payload before anything is sent, whether opted in or not.
-preview = PREVIEW.read_text(encoding="utf-8")
-check("Preview data…" in content, "footer offers a data preview")
-check(
-    "before or after opting in" in content,
-    "in-app copy says the preview remains available after opting in",
-)
-check(
-    ".sheet(isPresented: $showTelemetryPreview) { TelemetryPreviewView() }" in content,
-    "footer preview opens the telemetry preview sheet",
-)
-check("Preview only" in preview and "does not send" in preview,
-      "preview is clearly labelled as non-sending")
-check("sends no data" in preview, "preview repeats that it is local-only")
-preview_block = block(telemetry, "static func previewSamples()", "\n    }")
-preview_keys = set(re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)":', preview_block))
-check(preview_keys <= allowed_metadata, "preview examples use only allowlisted metadata keys")
-check(
-    "send(" not in preview_block and "URLSession" not in preview_block,
-    "preview construction cannot send data",
-)
+# 6. The dialog must explain the ask, show the exact payload, and default to not sending.
+check("Send anonymous statistics for this" in prompt, "dialog title asks about this patch run")
+check("This report is optional" in prompt, "dialog explains that the report is optional")
+check("Nothing has been sent yet" in prompt, "dialog states nothing was sent automatically")
+check("prioritise compatibility and performance fixes" in prompt, "dialog explains how the data helps")
+check("Preview — exactly what would be sent" in prompt, "dialog shows the exact payload before sending")
+check("prompt.json" in prompt, "dialog preview uses the same payload encoder")
+check('Button("Don\'t Send")' in prompt and 'Button("Send Statistics")' in prompt,
+      "dialog offers explicit Send and Don't Send choices")
+check("No file paths" in prompt, "dialog lists what is never sent")
+check("source IP" in prompt or "your IP address" in prompt, "dialog discloses ordinary network metadata")
 
-# 8. The user-facing disclosure must remain in the app and the README.
-check("Off by default." in content, "in-app disclosure says telemetry is off by default")
-check("never sends" in content, "in-app disclosure lists what is never sent")
-check("## Opt-in anonymous usage statistics" in readme, "README has an opt-in privacy section")
+# 7. The user-facing copy and README must describe the per-run prompt.
+check("never sent automatically" in content, "footer says statistics are never sent automatically")
+check("after each patch run" in content.lower(), "footer says the prompt follows each patch run")
+check("## Per-run anonymous usage statistics" in readme, "README has a per-run privacy section")
 check("**Why this helps.**" in readme, "README explains how the data improves compatibility")
 check("**What is collected.**" in readme, "README documents the collected fields")
 check("**What is never sent.**" in readme, "README documents what is never sent")
-check("Preview data…" in readme, "README explains the local payload preview")
-check(
-    "Opting in does not remove that preview" in readme,
-    "README says the preview remains available after opting in",
-)
+check("Preview — exactly what would be sent" in readme, "README explains the in-dialog preview")
+check("nothing is sent automatically" in readme.lower(), "README says nothing is sent automatically")
 check("source IP address" in readme, "README discloses ordinary network metadata")
-check(
-    "enabled by default" not in (content + readme + telemetry).lower(),
-    "no user-facing text claims telemetry is enabled by default",
-)
 
 if failures:
     print(f"\nPrivacy audit failed with {len(failures)} error(s).", file=sys.stderr)
     sys.exit(1)
 
-print("\nPrivacy audit passed: telemetry is opt-in and data-minimised.")
+print("\nPrivacy audit passed: statistics are per-run, previewed, and user-confirmed.")

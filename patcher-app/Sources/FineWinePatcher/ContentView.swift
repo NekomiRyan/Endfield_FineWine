@@ -6,13 +6,11 @@ struct ContentView: View {
     @EnvironmentObject private var engine: PatcherEngine
     @State private var crossover: CrossOverInfo?
     @State private var showLicenses = false
-    @State private var showTelemetryPreview = false
     @State private var showVersionWarning = false
     @State private var pendingDestination: URL?
     @State private var gptkSources: [GPTKSource] = []
     @State private var selectedGPTK: GPTKSource?
     @State private var gptkAutoSelected = false
-    @AppStorage("finewine.statistics.enabled") private var statisticsEnabled = false
 
     private let payloadReady = Payload.isComplete
 
@@ -33,7 +31,12 @@ struct ContentView: View {
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
         .sheet(isPresented: $showLicenses) { LicensesView() }
-        .sheet(isPresented: $showTelemetryPreview) { TelemetryPreviewView() }
+        .sheet(item: $engine.telemetryPrompt, onDismiss: { engine.telemetryPrompt = nil }) { prompt in
+            PatchTelemetryPromptView(prompt: prompt) { send in
+                if send { UsageTelemetry.send(prompt) }
+                engine.telemetryPrompt = nil
+            }
+        }
         .confirmationDialog("CrossOver version mismatch", isPresented: $showVersionWarning, titleVisibility: .visible) {
             Button("Patch Anyway", role: .destructive) {
                 if let destination = pendingDestination, let cx = crossover {
@@ -46,7 +49,6 @@ struct ContentView: View {
             Text("This CrossOver reports version \(crossover?.version ?? "unknown"), but the bundled modules are built against CrossOver \(CrossOverInfo.expectedVersion)'s Wine ABI. Patching a different version will almost certainly not work.")
         }
         .onAppear {
-            UsageTelemetry.setEnabled(statisticsEnabled)
             detectDefaultCrossOver()
             refreshGPTK()
         }
@@ -243,26 +245,7 @@ struct ContentView: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Toggle("Share anonymous usage statistics (optional)", isOn: $statisticsEnabled)
-                    .font(.caption)
-                    .onChange(of: statisticsEnabled) { enabled in
-                        UsageTelemetry.setEnabled(enabled)
-                    }
-                Spacer()
-                Button("Preview data…") { showTelemetryPreview = true }
-                    .font(.caption)
-            }
-            Text("""
-            Off by default. When enabled, sends anonymous events containing the event name, \
-            patcher version, macOS major version, selected graphics backend and whether GPTK was \
-            used, plus whether a patch or mod-chain attempt succeeded or failed, including its \
-            duration and failed step. This shows us which macOS, CrossOver, and patch steps fail \
-            most often, so we can prioritise compatibility and performance fixes. Preview data… \
-            is always available before or after opting in, so you can inspect the exact request \
-            examples at any time; opening the preview sends nothing. It never sends file paths, \
-            bottle names, game or account data, or a persistent identifier.
-            """)
+            Text("Usage statistics are never sent automatically. After each patch run, a dialog shows the exact anonymous report and asks whether to send it.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -32,47 +32,48 @@ MoltenVK **is** bundled (it is Apache-2.0), since the game's Vulkan/DXVK/vkd3d p
 **End users need no developer tools** — the `lib64` rpath is baked into the payload at app-build
 time, so at patch time the app only uses `codesign`, `ditto` and `xattr`, which ship with macOS.
 
-## Opt-in anonymous usage statistics
+## Per-run anonymous usage statistics
 
-Usage reporting is **off by default**. Nothing is sent until you explicitly enable
-**Share anonymous usage statistics (optional)** in the patcher footer, and you can turn it off
-again at any time. The toggle is the only consent mechanism; no install or launch event is sent
-before it is enabled.
-
-Use **Preview data…** beside the toggle to inspect the exact JSON request examples, including the
-event names and metadata fields that can be sent. The preview is available whether reporting is
-enabled or disabled, and opening it never sends anything. Opting in does not remove that preview:
-you can reopen it at any time to review what will be sent before deciding to keep reporting
-enabled.
+There is no telemetry checkbox and no persistent reporting setting. When a patch run finishes —
+whether it succeeded or failed — the patcher shows a dialog asking whether you want to send an
+anonymous report for **that run only**. The dialog includes the exact JSON payload, an explanation
+of why it helps, and a list of what is never collected. Nothing is sent automatically; the report
+is posted only if you choose **Send Statistics**. Choosing **Don't Send** closes the dialog without
+contacting the statistics endpoint.
 
 **Why this helps.** Release download counts cannot tell us whether the patch worked, which macOS
-or CrossOver version failed, or which step breaks most often. Opted-in events let us see failure
-rates and timings across real machines, so we can prioritise the compatibility and performance
-fixes that actually affect players.
+or CrossOver version failed, or which step breaks most often. These per-run reports let us see
+failure rates and timings across real machines, so we can prioritise the compatibility and
+performance fixes that actually affect players.
 
-**What is collected.** Each event contains only:
+**What is collected.** Each report contains only:
 
 | Field | Example | Purpose |
 |---|---|---|
 | `app` | `endfield-finewine-patcher` | Identifies the client |
-| `event` | `patch_succeeded`, `patch_failed`, `mod_chain_apply_failed` | What happened |
+| `event` | `patch_succeeded`, `patch_failed` | Whether the run completed |
 | `appVersion` | `1.2.4` | Correlate problems with a release |
 | `osMajor` | `26` | Find macOS-version-specific breakage |
-| `metadata` | `gptk=true`, `backend=dxmt`, `duration_seconds=42`, `failed_step=3` | Diagnose the path and failing step |
+| `metadata` | `gptk=true`, `duration_seconds=42`, `failed_step=3` | Diagnose the path and failing step |
 
 The collector is `https://endfield-fine-wine.lovable.app/api/statistics`. The request is a
 best-effort HTTPS POST; there is no retry or offline queue.
 
+**Preview — exactly what would be sent.** The confirmation dialog displays the pretty-printed
+JSON built from the same encoder used by the send action, so the preview cannot drift from the
+actual payload. It is shown before the Send Statistics button can be used.
+
 Every patcher build runs `scripts/check-telemetry-privacy.py` plus the telemetry unit tests. The
-build fails if telemetry is not off by default, if a launch/install event can be recorded before
-consent, if the event or metadata allowlist grows, or if the user-facing disclosure disappears.
+build fails if anything can be sent automatically, if a send action appears outside the
+user-confirmed dialog, if the event or metadata allowlist grows, or if the preview/disclosure
+disappears.
 
 **What is never sent.** File paths, bottle names, game or account data, usernames, hardware
 serials, or a persistent identifier. The statistics server can still observe ordinary network
 metadata such as the source IP address, as with any HTTPS request.
 
-Download totals remain release-host metrics; opted-in installs and actual patch usage are measured
-by the patcher.
+Download totals remain release-host metrics; actual patch usage is measured only from reports the
+user explicitly chooses to send.
 
 ## Mod chain (EFMI) — optional second phase
 
@@ -201,19 +202,19 @@ Sources/FineWinePatcher/
   FineWinePatcherApp.swift        app entry, shared engine, Tools menu, and the Mod Chain window
   ContentView.swift               the main patch UI (no mod-chain controls)
   ModChainView.swift              the separate Tools → Mod Chain (EFMI)… window
-  TelemetryPreviewView.swift      the local, non-sending telemetry preview sheet
+  PatchTelemetryPromptView.swift   the post-patch send/skip dialog with the exact payload preview
   PatcherEngine.swift             the patch steps (mirrors swap-into-crossover.sh) + the mod-chain phase
   ModChain.swift                  the mod (EFMI) chain support: backend/bottle/EFMI discovery,
                                   the d3dx.ini [System] proxy_d3d11 edit, verify, revert, state file
   LicensesView.swift              the Licenses window + component metadata
 Tests/FineWinePatcherTests/
   ModChainTests.swift             the mod-chain ini-editing rules (swift test)
-  UsageTelemetryTests.swift       opt-in + telemetry allowlist/preview checks (swift test)
+  UsageTelemetryTests.swift       per-run prompt schema + metadata allowlist checks (swift test)
 Resources/licenses/               license texts bundled into the app
 Resources/AppIcon.icns            the app icon (committed; regenerate with make-appicon.sh)
 Resources/appicon/                the icon source art
 scripts/build-app.sh              compile + assemble + payload staging (Wine + MoltenVK) + signing
-scripts/check-telemetry-privacy.py  build-time privacy gate for opt-in telemetry
+scripts/check-telemetry-privacy.py  build-time privacy gate for user-confirmed telemetry
 scripts/make-appicon.sh           regenerate AppIcon.icns from the source art
 scripts/make-appicon.swift        the icon renderer (ImageIO/Core Graphics)
 build/                            (gitignored) the assembled .app

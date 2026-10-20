@@ -157,6 +157,8 @@ final class PatcherEngine: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var patchedApp: URL?
     @Published var errorMessage: String?
+    /// Set after a patch run finishes. The UI presents it with an explicit send/skip choice.
+    @Published var telemetryPrompt: UsageTelemetry.Prompt?
 
     // MARK: Mod (EFMI) chain phase (bottle-side; independent of the app patch above)
 
@@ -185,8 +187,6 @@ final class PatcherEngine: ObservableObject {
 
     func applyModChain(plan: ChainPlan) {
         guard !isRunning, !modIsRunning else { return }
-        let telemetryMetadata = ["backend": plan.backend.rawValue]
-        UsageTelemetry.record("mod_chain_apply_started", metadata: telemetryMetadata)
         modReset()
         modIsRunning = true
         modSteps = Self.modStepLabels.enumerated().map { Step(id: $0.offset, label: $0.element) }
@@ -222,7 +222,6 @@ final class PatcherEngine: ObservableObject {
                     self.modAppliedPlan = plan
                     self.modIsRunning = false
                 }
-                UsageTelemetry.record("mod_chain_apply_succeeded", metadata: telemetryMetadata)
             } catch {
                 let failed = current
                 await MainActor.run {
@@ -230,14 +229,12 @@ final class PatcherEngine: ObservableObject {
                     self.modError = error.localizedDescription
                     self.modIsRunning = false
                 }
-                UsageTelemetry.record("mod_chain_apply_failed", metadata: telemetryMetadata)
             }
         }
     }
 
     func revertModChain(importerDir: URL) {
         guard !isRunning, !modIsRunning else { return }
-        UsageTelemetry.record("mod_chain_revert_started")
         modReset()
         modIsRunning = true
         modSteps = Self.modRevertLabels.enumerated().map { Step(id: $0.offset, label: $0.element) }
@@ -250,14 +247,12 @@ final class PatcherEngine: ObservableObject {
                     self.modSteps[1].status = .done
                     self.modIsRunning = false
                 }
-                UsageTelemetry.record("mod_chain_revert_succeeded")
             } catch {
                 await MainActor.run {
                     self.modSteps[0].status = .failed
                     self.modError = error.localizedDescription
                     self.modIsRunning = false
                 }
-                UsageTelemetry.record("mod_chain_revert_failed")
             }
         }
     }
@@ -280,6 +275,7 @@ final class PatcherEngine: ObservableObject {
         steps = []
         patchedApp = nil
         errorMessage = nil
+        telemetryPrompt = nil
     }
 
     func patch(source: URL, destination: URL, gptk: GPTKSource? = nil) {
@@ -291,8 +287,6 @@ final class PatcherEngine: ObservableObject {
         reset()
         isRunning = true
         steps = Self.stepLabels(includingGPTK: gptk != nil).enumerated().map { Step(id: $0.offset, label: $0.element) }
-        let telemetryMetadata = ["gptk": gptk == nil ? "false" : "true"]
-        UsageTelemetry.record("patch_started", metadata: telemetryMetadata)
         let patchStartedAt = Date()
 
         Task.detached(priority: .userInitiated) {
@@ -338,24 +332,25 @@ final class PatcherEngine: ObservableObject {
                 try Self.moveIntoPlace(app, destination: destination)
                 await finish(index); index += 1
 
+                let elapsed = Int(Date().timeIntervalSince(patchStartedAt))
+                let prompt = UsageTelemetry.makePatchPrompt(
+                    succeeded: true, gptk: gptk != nil, failedStep: nil, durationSeconds: elapsed)
                 await MainActor.run {
                     self.patchedApp = destination
                     self.isRunning = false
+                    self.telemetryPrompt = prompt
                 }
-                UsageTelemetry.record("patch_succeeded", metadata: telemetryMetadata.merging([
-                    "duration_seconds": String(Int(Date().timeIntervalSince(patchStartedAt)))
-                ]) { current, _ in current })
             } catch {
                 let failed = current
+                let elapsed = Int(Date().timeIntervalSince(patchStartedAt))
+                let prompt = UsageTelemetry.makePatchPrompt(
+                    succeeded: false, gptk: gptk != nil, failedStep: failed, durationSeconds: elapsed)
                 await MainActor.run {
                     if failed < self.steps.count { self.steps[failed].status = .failed }
                     self.errorMessage = error.localizedDescription
                     self.isRunning = false
+                    self.telemetryPrompt = prompt
                 }
-                UsageTelemetry.record("patch_failed", metadata: telemetryMetadata.merging([
-                    "failed_step": String(failed),
-                    "duration_seconds": String(Int(Date().timeIntervalSince(patchStartedAt)))
-                ]) { current, _ in current })
             }
         }
     }

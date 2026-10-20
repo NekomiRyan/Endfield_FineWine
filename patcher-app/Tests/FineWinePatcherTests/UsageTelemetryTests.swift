@@ -3,53 +3,57 @@ import XCTest
 
 final class UsageTelemetryTests: XCTestCase {
 
-    func testTelemetryIsOptedOutByDefault() {
-        let defaults = UserDefaults.standard
-        let enabledKey = "finewine.statistics.enabled"
-        let installedKey = "finewine.statistics.installed"
-        let oldEnabled = defaults.object(forKey: enabledKey)
-        let oldInstalled = defaults.object(forKey: installedKey)
-        defer {
-            if let oldEnabled { defaults.set(oldEnabled, forKey: enabledKey) }
-            else { defaults.removeObject(forKey: enabledKey) }
-            if let oldInstalled { defaults.set(oldInstalled, forKey: installedKey) }
-            else { defaults.removeObject(forKey: installedKey) }
-        }
-
-        defaults.removeObject(forKey: enabledKey)
-        defaults.removeObject(forKey: installedKey)
-
-        XCTAssertFalse(UsageTelemetry.isEnabled)
-        UsageTelemetry.recordAppLaunch()
-        XCTAssertFalse(defaults.bool(forKey: installedKey),
-                       "the first-launch install event must wait for explicit consent")
-    }
-
     func testOnlyAllowlistedMetadataCanBeSent() {
         let safe = UsageTelemetry.safeMetadata([
-            "backend": "dxmt",
             "gptk": "true",
+            "duration_seconds": "42",
+            "failed_step": "3",
             "path": "/Users/example/Bottles/private",
             "bottle": "Arknights Endfield",
             "token": "secret",
         ])
-        XCTAssertEqual(safe, ["backend": "dxmt", "gptk": "true"])
+        XCTAssertEqual(safe, [
+            "gptk": "true",
+            "duration_seconds": "42",
+            "failed_step": "3",
+        ])
     }
 
-    func testPreviewSamplesContainOnlyTheApprovedSchema() throws {
-        let samples = UsageTelemetry.previewSamples()
-        XCTAssertFalse(samples.isEmpty)
-        for sample in samples {
-            let data = try XCTUnwrap(sample.json.data(using: .utf8))
-            let object = try XCTUnwrap(
-                JSONSerialization.jsonObject(with: data) as? [String: Any]
-            )
-            XCTAssertEqual(
-                Set(object.keys),
-                ["app", "event", "count", "appVersion", "osMajor", "metadata"]
-            )
-            let metadata = try XCTUnwrap(object["metadata"] as? [String: String])
-            XCTAssertTrue(Set(metadata.keys).isSubset(of: UsageTelemetry.allowedMetadataKeys))
-        }
+    func testFailedPatchPromptContainsOnlyTheApprovedSchema() throws {
+        let prompt = UsageTelemetry.makePatchPrompt(
+            succeeded: false, gptk: true, failedStep: 3, durationSeconds: 42
+        )
+        XCTAssertEqual(prompt.event, "patch_failed")
+        XCTAssertFalse(prompt.isSuccess)
+
+        let object = try jsonObject(prompt)
+        XCTAssertEqual(
+            Set(object.keys),
+            ["app", "event", "count", "appVersion", "osMajor", "metadata"]
+        )
+        XCTAssertEqual(object["event"] as? String, "patch_failed")
+        let metadata = try XCTUnwrap(object["metadata"] as? [String: String])
+        XCTAssertEqual(metadata, [
+            "gptk": "true",
+            "duration_seconds": "42",
+            "failed_step": "3",
+        ])
+    }
+
+    func testSuccessfulPatchPromptHasNoFailedStep() throws {
+        let prompt = UsageTelemetry.makePatchPrompt(
+            succeeded: true, gptk: false, failedStep: nil, durationSeconds: 12
+        )
+        XCTAssertEqual(prompt.event, "patch_succeeded")
+        XCTAssertTrue(prompt.isSuccess)
+
+        let metadata = try XCTUnwrap(try jsonObject(prompt)["metadata"] as? [String: String])
+        XCTAssertEqual(metadata, ["gptk": "false", "duration_seconds": "12"])
+        XCTAssertNil(metadata["failed_step"])
+    }
+
+    private func jsonObject(_ prompt: UsageTelemetry.Prompt) throws -> [String: Any] {
+        let data = try XCTUnwrap(prompt.json.data(using: .utf8))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 }

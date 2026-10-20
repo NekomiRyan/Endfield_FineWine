@@ -21,6 +21,7 @@ TELEMETRY = APP / "Sources/FineWinePatcher/UsageTelemetry.swift"
 ENGINE = APP / "Sources/FineWinePatcher/PatcherEngine.swift"
 CONTENT = APP / "Sources/FineWinePatcher/ContentView.swift"
 PROMPT = APP / "Sources/FineWinePatcher/PatchTelemetryPromptView.swift"
+THANKYOU = APP / "Sources/FineWinePatcher/TelemetryThankYouView.swift"
 README = APP / "README.md"
 SOURCES = APP / "Sources/FineWinePatcher"
 
@@ -48,6 +49,7 @@ telemetry = TELEMETRY.read_text(encoding="utf-8")
 engine = ENGINE.read_text(encoding="utf-8")
 content = CONTENT.read_text(encoding="utf-8")
 prompt = PROMPT.read_text(encoding="utf-8")
+thanks = THANKYOU.read_text(encoding="utf-8")
 readme = README.read_text(encoding="utf-8")
 all_sources = "\n".join(p.read_text(encoding="utf-8") for p in SOURCES.glob("*.swift"))
 
@@ -80,7 +82,7 @@ check(
 # 3. The only network send is the user's explicit choice in the prompt.
 send_calls = re.findall(r"UsageTelemetry\.send\(([^)]*)\)", all_sources)
 check(send_calls == ["prompt"], "the only send call is the user's Send Statistics action")
-check("if send { UsageTelemetry.send(prompt) }" in content, "Send Statistics is wired to the dialog choice")
+check("onSend: { UsageTelemetry.send(prompt) }" in content, "Send Statistics is wired to the dialog choice")
 check("UsageTelemetry.send" not in prompt, "the prompt view itself cannot send before a choice")
 check("UsageTelemetry.send" not in engine, "the patch engine never sends automatically")
 
@@ -137,7 +139,18 @@ check('Button("Don\'t Send")' in prompt and 'Button("Send Statistics")' in promp
 check("No file paths" in prompt, "dialog lists what is never sent")
 check("source IP" in prompt or "your IP address" in prompt, "dialog discloses ordinary network metadata")
 
-# 7. The user-facing copy and README must describe the per-run prompt.
+# 7. Sending must lead to a thank-you celebration rather than closing immediately.
+check("if sent {" in prompt and "TelemetryThankYouView" in prompt,
+      "Send Statistics transitions to the thank-you view")
+check("NSPasteboard" not in thanks and "UsageTelemetry.send" not in thanks,
+      "thank-you view cannot send data")
+check("Thank you!" in thanks, "thank-you dialog thanks the contributor")
+check("sincerely appreciate" in thanks, "thank-you dialog expresses appreciation")
+check("CelebrationConfetti" in thanks, "thank-you dialog includes confetti")
+check("ConfettiPiece.makePieces()" in thanks and ".animation(" in thanks,
+      "confetti celebration is animated")
+
+# 8. The user-facing copy and README must describe the per-run prompt.
 check("never sent automatically" in content, "footer says statistics are never sent automatically")
 check("after each patch run" in content.lower(), "footer says the prompt follows each patch run")
 check("## Per-run anonymous usage statistics" in readme, "README has a per-run privacy section")
@@ -145,6 +158,7 @@ check("**Why this helps.**" in readme, "README explains how the data improves co
 check("**What is collected.**" in readme, "README documents the collected fields")
 check("**What is never sent.**" in readme, "README documents what is never sent")
 check("Preview — exactly what would be sent" in readme, "README explains the in-dialog preview")
+check("thank-you dialog" in readme.lower(), "README documents the thank-you celebration")
 check("nothing is sent automatically" in readme.lower(), "README says nothing is sent automatically")
 check("source IP address" in readme, "README discloses ordinary network metadata")
 

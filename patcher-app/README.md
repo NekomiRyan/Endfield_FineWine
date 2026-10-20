@@ -63,6 +63,9 @@ best-effort HTTPS POST; there is no retry or offline queue.
 JSON built from the same encoder used by the send action, so the preview cannot drift from the
 actual payload. It is shown before the Send Statistics button can be used.
 
+After you choose **Send Statistics**, the app shows a thank-you dialog with a short confetti
+celebration to acknowledge your contribution to the project.
+
 Every patcher build runs `scripts/check-telemetry-privacy.py` plus the telemetry unit tests. The
 build fails if anything can be sent automatically, if a send action appears outside the
 user-confirmed dialog, if the event or metadata allowlist grows, or if the preview/disclosure
@@ -203,6 +206,7 @@ Sources/FineWinePatcher/
   ContentView.swift               the main patch UI (no mod-chain controls)
   ModChainView.swift              the separate Tools → Mod Chain (EFMI)… window
   PatchTelemetryPromptView.swift   the post-patch send/skip dialog with the exact payload preview
+  TelemetryThankYouView.swift      the post-send thank-you dialog with confetti
   PatcherEngine.swift             the patch steps (mirrors swap-into-crossover.sh) + the mod-chain phase
   ModChain.swift                  the mod (EFMI) chain support: backend/bottle/EFMI discovery,
                                   the d3dx.ini [System] proxy_d3d11 edit, verify, revert, state file

@@ -415,6 +415,7 @@ jobs:
           exact payload first; only the explicit Send Statistics action posts it.
           ✅ The build verified the event/metadata allowlists, the HTTPS endpoint, the send/skip
           dialog, and that the engine cannot send on its own.
+          ✅ Sending opens a thank-you dialog with a confetti celebration.
           ✅ `patcher-app/README.md` documents what is collected, why it helps, and what is never
           sent.
           EOF

@@ -4,9 +4,11 @@ import SwiftUI
 /// whether this run's anonymous report is sent.
 struct PatchTelemetryPromptView: View {
     let prompt: UsageTelemetry.Prompt
-    let onDecision: (Bool) -> Void
+    let onSend: () -> Void
+    let onFinished: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var sent = false
 
     private var title: String {
         prompt.isSuccess
@@ -15,6 +17,20 @@ struct PatchTelemetryPromptView: View {
     }
 
     var body: some View {
+        Group {
+            if sent {
+                TelemetryThankYouView {
+                    onFinished()
+                    dismiss()
+                }
+            } else {
+                promptContent
+            }
+        }
+        .frame(width: 620, height: 500)
+    }
+
+    private var promptContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.title3.weight(.semibold))
@@ -49,20 +65,18 @@ struct PatchTelemetryPromptView: View {
 
             HStack {
                 Button("Don't Send") {
-                    onDecision(false)
+                    onFinished()
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Send Statistics") {
-                    onDecision(true)
-                    dismiss()
+                    onSend()
+                    withAnimation(.easeInOut(duration: 0.2)) { sent = true }
                 }
                 .buttonStyle(.borderedProminent)
             }
         }
         .padding(20)
-        .frame(width: 620, height: 500)
-        .interactiveDismissDisabled(false)
     }
 }

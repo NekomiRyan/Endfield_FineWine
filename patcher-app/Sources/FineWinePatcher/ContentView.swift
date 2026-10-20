@@ -32,10 +32,11 @@ struct ContentView: View {
         .fixedSize(horizontal: false, vertical: true)
         .sheet(isPresented: $showLicenses) { LicensesView() }
         .sheet(item: $engine.telemetryPrompt, onDismiss: { engine.telemetryPrompt = nil }) { prompt in
-            PatchTelemetryPromptView(prompt: prompt) { send in
-                if send { UsageTelemetry.send(prompt) }
-                engine.telemetryPrompt = nil
-            }
+            PatchTelemetryPromptView(
+                prompt: prompt,
+                onSend: { UsageTelemetry.send(prompt) },
+                onFinished: { engine.telemetryPrompt = nil }
+            )
         }
         .confirmationDialog("CrossOver version mismatch", isPresented: $showVersionWarning, titleVisibility: .visible) {
             Button("Patch Anyway", role: .destructive) {

@@ -145,6 +145,10 @@ jobs:
       BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
       BLUESKY_PDS: ${{ vars.BLUESKY_PDS }}
     steps:
+      # The release job needs the repo's scripts (e.g. .github/scripts/post-bluesky-thread.py);
+      # downloading build artifacts does not populate the workspace with them.
+      - uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:

@@ -303,7 +303,11 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
           PIPELINE_STARTED_EPOCH: ${{ needs.version.outputs.started_epoch }}
           DOWNLOAD_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.version.outputs.tag }}
-          BODY_FILE: notes.md
+          # The thread's replies carry the generated description only (discord.md = the LLM
+          # summary, or the commit-list fallback when the model was unavailable) — never the
+          # full release body, whose asset table, collapsible commit list and provenance
+          # footer are meant for the GitHub release page.
+          BODY_FILE: discord.md
         run: python3 .github/scripts/post-bluesky-thread.py
 
       # Issue-form dropdowns cannot be populated at form-render time, and main is protected.

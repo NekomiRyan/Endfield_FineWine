@@ -46,6 +46,7 @@ jobs:
       should_build: ${{ steps.gate.outputs.should_build }}
       base_sha: ${{ steps.gate.outputs.base_sha }}
       commits: ${{ steps.gate.outputs.commits }}
+      short_sha: ${{ steps.gate.outputs.short_sha }}
       started_epoch: ${{ steps.clock.outputs.started_epoch }}
     steps:
       # The Bluesky thread reports this pipeline's duration (docs/wiki are separate workflows).
@@ -64,23 +65,15 @@ jobs:
         run: |
           set -euo pipefail
           echo "event: $GITHUB_EVENT_NAME / head: $(git rev-parse --short HEAD)"
+          echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "manual dispatch -> forced build"
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            BASE="$(git rev-list --max-parents=0 HEAD)"
-            {
-              echo "base_sha=$BASE"
-              echo "commits<<EOT"
-              git log --oneline --no-decorate -30 HEAD
-              echo "EOT"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Newest nightly snapshot tag. Tags are `nightly_<cxver>.<UTC YYYYMMDD>_<sha>` (the
-          # date part is fixed width, so lexical order == chronological order); also match
-          # the transitional `nightly-YYYYMMDD-HHMM` format in case it ever shipped.
+          # Baseline: the newest nightly snapshot tag — on every event, manual dispatches
+          # included, so release notes and the Bluesky thread only ever list commits newer
+          # than the last published nightly (never "the last N commits of main").
+          #
+          # Tags are `nightly_<cxver>.<UTC YYYYMMDD>_<sha>` (the date part is fixed width, so
+          # lexical order == chronological order); also match the transitional
+          # `nightly-YYYYMMDD-HHMM` format in case it ever shipped.
           LATEST="$(git for-each-ref 'refs/tags/nightly_*' 'refs/tags/nightly-*' --sort=-refname --count=1 --format='%(refname:short)')"
           if [ -n "$LATEST" ]; then
             BASE="$(git rev-parse "${LATEST}^{}")"
@@ -93,23 +86,30 @@ jobs:
             echo "baseline (legacy rolling nightly tag): $BASE"
           else
             BASE="$(git rev-list --max-parents=0 HEAD)"
-            echo "no previous nightly tag -> first nightly, building"
+            echo "no previous nightly tag -> first nightly"
           fi
 
-          CHANGED="$(git diff --name-only "$BASE"..HEAD -- patches scripts patcher-app .github/workflows || true)"
-          if [ -n "$CHANGED" ]; then
-            echo "build-affecting changes:"
-            echo "$CHANGED"
+          # A manual dispatch always (re)builds; the schedule only builds when build-affecting
+          # paths changed since the baseline.
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "manual dispatch -> forced build"
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           else
-            echo "no build-affecting changes since the last nightly -> skipping"
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            CHANGED="$(git diff --name-only "$BASE"..HEAD -- patches scripts patcher-app .github/workflows || true)"
+            if [ -n "$CHANGED" ]; then
+              echo "build-affecting changes:"
+              echo "$CHANGED"
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "no build-affecting changes since the last nightly -> skipping"
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
           {
             echo "base_sha=$BASE"
             echo "commits<<EOT"
-            git log --oneline --no-decorate -30 "$BASE"..HEAD
+            git log --oneline --no-decorate "$BASE"..HEAD
             echo "EOT"
           } >> "$GITHUB_OUTPUT"
 
@@ -132,6 +132,9 @@ jobs:
       cx_version: "26.3.0"
       runner: "xcode-27" # macOS 27.0 + Xcode 27.0 RC; change to macos-26 for the GA image
       build_patcher_app: true
+      # Without this, build-app.sh stamps its default "1.1.0", so wizard telemetry from
+      # nightly users reports a stale version that never existed for that build.
+      app_version: nightly-${{ needs.changes.outputs.short_sha }}
 
   release:
     name: Snapshot pre-release

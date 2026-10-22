@@ -39,6 +39,13 @@ enum Payload {
         // Patched wineboot.exe starts the lsass.exe stub at boot.
         PayloadModule(payloadSubpath: "x86_64-windows/wineboot.exe",
                       crossoverSubpath: "lib/wine/x86_64-windows/wineboot.exe"),
+        // rundll32.exe is EXEC'd by cxbottle for the 'win11Install crossover.inf' step that
+        // creates every bottle. Our rebuild drops the visible helper window that hangs/fails
+        // prefix creation on macOS 26 (WineHQ bug 59595) — upstream Wine has not merged a fix,
+        // so we ship the patched builtin. Like wineserver it is an exec'd Mach-O and needs its
+        // own signature (see requiresOwnSignature).
+        PayloadModule(payloadSubpath: "x86_64-windows/rundll32.exe",
+                      crossoverSubpath: "lib/wine/x86_64-windows/rundll32.exe"),
         // wineserver: its server-side protocol version must match the swapped ntdll.so's client
         // version. Stock CrossOver ships an older wineserver, so leaving it in place makes every
         // wine process die with "wine client error:0: version mismatch …" before any window shows.
@@ -688,9 +695,12 @@ final class PatcherEngine: ObservableObject {
     /// Mach-O payload modules that need a signature of their own to load on Apple Silicon.
     /// `wineserver` has no extension but is a signed Mach-O executable like the `.so`/`.dylib`
     /// libraries, so it must be treated the same when signing and when stripping for comparison.
+    /// `rundll32.exe` is likewise an exec'd Mach-O (the PE header rides inside); unlike the other
+    /// PE builtins it is never only mapped, so an unsigned copy gets killed before main().
     private nonisolated static func requiresOwnSignature(_ url: URL) -> Bool {
         let ext = url.pathExtension
-        return ext == "so" || ext == "dylib" || url.lastPathComponent == "wineserver"
+        return ext == "so" || ext == "dylib"
+            || url.lastPathComponent == "wineserver" || url.lastPathComponent == "rundll32.exe"
     }
 
     /// Content hash of a module with any embedded code signature removed. The Mach-O modules

@@ -191,6 +191,11 @@ swap "$B/dlls/kernel32/x86_64-windows/kernel32.dll"     "lib/wine/x86_64-windows
 swap "$B/dlls/ntoskrnl.exe/x86_64-windows/ntoskrnl.exe" "lib/wine/x86_64-windows/ntoskrnl.exe" # ntoskrnl em-backports + ACE-CORE DriverInit/lsass support
 swap "$B/programs/lsass/x86_64-windows/lsass.exe"       "lib/wine/x86_64-windows/lsass.exe"     # new: ACE-CORE requires a running lsass.exe
 swap "$B/programs/wineboot/x86_64-windows/wineboot.exe" "lib/wine/x86_64-windows/wineboot.exe"  # starts the lsass.exe stub at boot
+# rundll32.exe is exec'd for the win11Install crossover.inf bottle-creation step; the patched
+# builtin drops its visible helper window (WineHQ bug 59595) that fails prefix creation on
+# macOS 26. An exec'd Mach-O, so it needs its own signature like wineserver.
+swap "$B/programs/rundll32/x86_64-windows/rundll32.exe" "lib/wine/x86_64-windows/rundll32.exe"
+codesign --force --sign - "$CXR/lib/wine/x86_64-windows/rundll32.exe" 2>/dev/null || true
 # ACE-CORE opens kernel objects for each process token; stock CrossOver's server refuses them
 # (set_object_reference fails with STATUS_INVALID_HANDLE). Our server allows token+directory
 # kernel objects. CrossOver ships the same binary at two paths; replace both.

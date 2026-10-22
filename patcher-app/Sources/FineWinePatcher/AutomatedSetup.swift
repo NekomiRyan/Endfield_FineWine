@@ -49,11 +49,17 @@ struct BottleSettings: Equatable {
 
     /// `[EnvironmentVariables]` entries for `cxbottle --param EnvironmentVariables:KEY=VALUE`.
     var environment: [(key: String, value: String)] {
+        environment(msyncOverride: msync)
+    }
+
+    /// `environment` with an override for the WINEMSYNC value — the setup's MSync-off fallback
+    /// retry uses this. The Metal 4 guard applies the same way.
+    func environment(msyncOverride: Bool) -> [(key: String, value: String)] {
         var pairs: [(String, String)] = []
         if let backend = backend.bottleValue {
             pairs.append(("CX_GRAPHICS_BACKEND", backend))
         }
-        pairs.append(("WINEMSYNC", msync ? "1" : "0"))
+        pairs.append(("WINEMSYNC", msyncOverride ? "1" : "0"))
         if upscaling, let key = backend.upscalerKey {
             pairs.append((key, "1"))
         }
@@ -177,6 +183,9 @@ final class SetupEngine: ObservableObject {
     @Published var errorMessage: String?
     /// Set once the bottle exists; the wizard shows it on the finished screen.
     @Published private(set) var createdBottle: String?
+    /// True when the bottle only created after the MSync-off fallback retry; the finished screen
+    /// tells the user MSync was disabled (a per-bottle performance-relevant change).
+    @Published private(set) var msyncFallback = false
     /// True while the (interactive) Gryphline installer is up.
     @Published private(set) var installerRunning = false
     /// Exit status of the installer once it finishes, for the finished screen.
@@ -201,6 +210,7 @@ final class SetupEngine: ObservableObject {
         steps = []
         errorMessage = nil
         createdBottle = nil
+        msyncFallback = false
         installerExit = nil
         logFiles = []
         telemetryPrompt = nil
@@ -243,6 +253,7 @@ final class SetupEngine: ObservableObject {
 
         Task.detached(priority: .userInitiated) {
             var current = 0
+            var msyncFallbackUsed = false
             func begin(_ index: Int) async {
                 current = index
                 await MainActor.run { self.steps[index].status = .running }
@@ -255,16 +266,40 @@ final class SetupEngine: ObservableObject {
                 await MainActor.run { self.logFiles.append(bottleLog) }
 
                 await begin(0)
-                var args = [
-                    "--bottle", bottle,
-                    "--create",
-                    "--template", settings.template,
-                    "--description", "Arknights: Endfield (Endfield_FineWine)",
-                ]
-                for (key, value) in settings.environment {
-                    args += ["--param", "EnvironmentVariables:\(key)=\(value)"]
+                // Preflight: prove the machine can exec this x86_64 Wine at all (Rosetta 2, dyld,
+                // the winetemp ntdll.so loader path) before cxbottle starts. A loader-level kill
+                // — the macOS 26 silent-failure class — then reports an actionable message with
+                // its stderr instead of a cryptic 'win11Install crossover.inf failed'.
+                let preflightLog = Self.logURL("preflight-\(Self.slug(bottle))")
+                await MainActor.run { self.logFiles.append(preflightLog) }
+                try Self.runPreflight(cxr: cxr, log: preflightLog)
+
+                do {
+                    try Self.runToCompletion(
+                        executable: cxr.appendingPathComponent("bin/cxbottle"),
+                        Self.cxbottleArguments(bottle: bottle, template: settings.template,
+                                               environment: settings.environment),
+                        log: bottleLog)
+                } catch let firstError {
+                    // WineHQ bug 59595's macOS 26 class can kill bottle creation with MSync on
+                    // while it succeeds without it — the same MSYNC=0 workaround
+                    // scripts/create-bottle.sh documents. Remove the partial bottle and retry
+                    // once with MSync off; only a real MSync interaction can be recovered here.
+                    guard settings.msync else { throw firstError }
+                    msyncFallbackUsed = true
+                    await MainActor.run { self.msyncFallback = true }
+                    Self.append(log: bottleLog, text: """
+                        \nfirst cxbottle attempt failed: \(firstError.localizedDescription)
+                        retrying once with WINEMSYNC=0 (MSync-off fallback)
+
+                        """)
+                    Self.removePartialBottle(named: bottle, log: bottleLog)
+                    try Self.runToCompletion(
+                        executable: cxr.appendingPathComponent("bin/cxbottle"),
+                        Self.cxbottleArguments(bottle: bottle, template: settings.template,
+                                               environment: settings.environment(msyncOverride: false)),
+                        log: bottleLog)
                 }
-                try Self.runToCompletion(executable: cxr.appendingPathComponent("bin/cxbottle"), args, log: bottleLog)
                 await finish(0)
 
                 await begin(1)
@@ -313,6 +348,7 @@ final class SetupEngine: ObservableObject {
                     failedStep: failed ? 1 : nil,
                     durationSeconds: Int(Date().timeIntervalSince(startedAt)),
                     settings: settings,
+                    msyncFallback: msyncFallbackUsed,
                     installerStarted: true,
                     installerExit: snapshot.exit,
                     bottleName: bottle,
@@ -327,6 +363,7 @@ final class SetupEngine: ObservableObject {
                     failedStep: failed,
                     durationSeconds: Int(Date().timeIntervalSince(startedAt)),
                     settings: settings,
+                    msyncFallback: msyncFallbackUsed,
                     installerStarted: false,
                     installerExit: nil,
                     bottleName: bottle,
@@ -359,6 +396,107 @@ final class SetupEngine: ObservableObject {
         var slug = name.unicodeScalars.map { allowed.contains($0) ? String($0) : "-" }.joined()
         while slug.contains("--") { slug = slug.replacingOccurrences(of: "--", with: "-") }
         return slug
+    }
+
+    /// The cxbottle argument vector, in one place so the first attempt, the MSync-off fallback
+    /// retry and the tests all build it the same way.
+    nonisolated static func cxbottleArguments(bottle: String, template: String,
+                                              environment: [(key: String, value: String)]) -> [String] {
+        var args = [
+            "--bottle", bottle,
+            "--create",
+            "--template", template,
+            "--description", "Arknights: Endfield (Endfield_FineWine)",
+        ]
+        for (key, value) in environment {
+            args += ["--param", "EnvironmentVariables:\(key)=\(value)"]
+        }
+        return args
+    }
+
+    /// Runs before cxbottle so a machine that cannot exec this x86_64 Wine fails with an
+    /// actionable message (and a log) instead of a cryptic 'win11Install crossover.inf failed'
+    /// two steps later. Both checks capture output into `log`, which rides along in the setup
+    /// report:
+    ///
+    /// 1. Rosetta 2 present (Apple Silicon only): the Wine we ship is x86_64. The wizard never
+    ///    launches stock CrossOver first, so nothing else triggers the Rosetta install prompt.
+    /// 2. `wine --version` really runs: it exercises the Rosetta exec, dyld and the winetemp
+    ///    ntdll.so loader path end to end (the macOS 26 loader-kill class shows up here).
+    /// `archPath` is injectable so tests can stay hermetic (no real Rosetta required).
+    nonisolated static func runPreflight(cxr: URL, log: URL, archPath: String = "/usr/bin/arch") throws {
+        append(log: log, text: "$ preflight: Rosetta 2 + bin/wine --version\n")
+        if isAppleSilicon() {
+            let rosetta = runCaptured(archPath, ["-x86_64", "/usr/bin/true"])
+            append(log: log, text: "$ /usr/bin/arch -x86_64 /usr/bin/true -> exit \(rosetta.status)\n\(rosetta.output)")
+            guard rosetta.status == 0 else {
+                throw Failure(message: """
+                    Rosetta 2 is not installed — the patched Wine is x86_64 and needs it on Apple Silicon. \
+                    Install it in Terminal with: softwareupdate --install-rosetta --agree-to-license
+                    """)
+            }
+        }
+        let wine = runCaptured(cxr.appendingPathComponent("bin/wine").path, ["--version"])
+        append(log: log, text: "$ bin/wine --version -> exit \(wine.status)\n\(wine.output)")
+        guard wine.status == 0, wine.output.contains("wine") else {
+            throw Failure(message: """
+                wine failed to start (exit \(wine.status)) — the patched CrossOver copy is broken \
+                or the machine cannot run its x86_64 binaries. See the preflight log for output.
+                """)
+        }
+        append(log: log, text: "preflight ok: \(wine.output.trimmingCharacters(in: .whitespacesAndNewlines))\n")
+    }
+
+    /// Removes the partial bottle directory a failed `cxbottle --create` leaves behind (it can
+    /// exist with a conf but no working prefix). The setup's own validation guarantees no bottle
+    /// with this name existed when the setup started, so anything found now is this run's.
+    private nonisolated static func removePartialBottle(named name: String, log: URL) {
+        let fm = FileManager.default
+        var removed = false
+        for root in BottleInfo.allBottlesRoots() {
+            let dir = root.appendingPathComponent(name, isDirectory: true)
+            guard fm.fileExists(atPath: dir.path) else { continue }
+            if (try? fm.removeItem(at: dir)) != nil { removed = true }
+        }
+        append(log: log, text: removed ? "removed the partial bottle directory\n" : "no partial bottle directory found\n")
+    }
+
+    /// Appends text to a log file, creating it if needed (best effort — logging must never fail
+    /// the setup).
+    private nonisolated static func append(log: URL, text: String) {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: log.path) {
+            fm.createFile(atPath: log.path, contents: Data())
+        }
+        guard let handle = FileHandle(forWritingAtPath: log.path) else { return }
+        defer { try? handle.close() }
+        handle.seekToEndOfFile()
+        handle.write(Data(text.utf8))
+    }
+
+    /// Runs a short command, capturing its combined output; used by the preflight checks.
+    private nonisolated static func runCaptured(_ launchPath: String, _ args: [String]) -> (status: Int32, output: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: launchPath)
+        process.arguments = args
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do {
+            try process.run()
+        } catch {
+            return (127, "could not launch \(launchPath): \(error.localizedDescription)\n")
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (process.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+    }
+
+    /// True on Apple Silicon Macs (the only machines that need Rosetta 2 for this x86_64 Wine).
+    private nonisolated static func isAppleSilicon() -> Bool {
+        var value: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        return sysctlbyname("hw.optional.arm64", &value, &size, nil, 0) == 0 && value == 1
     }
 
     /// Runs a helper to completion, capturing stdout/stderr in `log`. Throws with the tail of the

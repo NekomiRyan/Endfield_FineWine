@@ -152,6 +152,108 @@ final class AutomatedSetupTests: XCTestCase {
         }
     }
 
+    // MARK: - cxbottle arguments + MSync-off fallback
+
+    func testCxbottleArgumentsMatchTheWizardContract() {
+        let settings = BottleSettings()
+        let args = SetupEngine.cxbottleArguments(
+            bottle: settings.trimmedName, template: settings.template,
+            environment: settings.environment)
+        XCTAssertEqual(args, [
+            "--bottle", "Arknights Endfield",
+            "--create",
+            "--template", "win11_64",
+            "--description", "Arknights: Endfield (Endfield_FineWine)",
+            "--param", "EnvironmentVariables:CX_GRAPHICS_BACKEND=d3dmetal",
+            "--param", "EnvironmentVariables:WINEMSYNC=1",
+            "--param", "EnvironmentVariables:D3DM_ENABLE_METALFX=1",
+        ])
+    }
+
+    func testMsyncOverrideChangesOnlyWINEMSYNC() {
+        // The fallback retry rebuilds the arguments with MSync off; every other setting is
+        // carried over unchanged.
+        let settings = BottleSettings()
+        let on = Dictionary(uniqueKeysWithValues: settings.environment.map { ($0.key, $0.value) })
+        let off = Dictionary(
+            uniqueKeysWithValues: settings.environment(msyncOverride: false).map { ($0.key, $0.value) })
+        XCTAssertEqual(on["WINEMSYNC"], "1")
+        XCTAssertEqual(off["WINEMSYNC"], "0")
+        XCTAssertEqual(on["CX_GRAPHICS_BACKEND"], off["CX_GRAPHICS_BACKEND"])
+        XCTAssertEqual(on["D3DM_ENABLE_METALFX"], off["D3DM_ENABLE_METALFX"])
+    }
+
+    // MARK: - Preflight (Rosetta + wine smoke exec)
+
+    /// A fake CrossOver root whose `bin/wine` prints a version and exits with `status`.
+    private func fakeCrossOverRoot(status: Int32, output: String = "wine-11.0\n") throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fw-preflight-\(UUID().uuidString)", isDirectory: true)
+        let bin = dir.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let wine = bin.appendingPathComponent("wine")
+        let body = status == 0 ? "#!/bin/sh\nprintf '%s' \"\(output)\"\nexit 0\n"
+                               : "#!/bin/sh\nprintf '%s' \"\(output)\" >&2\nexit \(status)\n"
+        try body.write(to: wine, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: wine.path)
+        return dir
+    }
+
+    /// A fake `arch` helper exiting with `status`.
+    private func fakeArch(status: Int32) throws -> String {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fw-preflight-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let arch = dir.appendingPathComponent("arch")
+        try "#!/bin/sh\nexit \(status)\n".write(to: arch, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: arch.path)
+        return arch.path
+    }
+
+    private func tempLog(in dir: URL) -> URL {
+        dir.appendingPathComponent("preflight.log")
+    }
+
+    func testPreflightPassesWhenWineRuns() throws {
+        let cxr = try fakeCrossOverRoot(status: 0)
+        let log = tempLog(in: cxr)
+        try SetupEngine.runPreflight(cxr: cxr, log: log, archPath: try fakeArch(status: 0))
+        let text = try String(contentsOf: log, encoding: .utf8)
+        XCTAssertTrue(text.contains("preflight ok"), text)
+        XCTAssertTrue(text.contains("wine-11.0"), text)
+    }
+
+    func testPreflightFailsWithoutRosetta() throws {
+        let cxr = try fakeCrossOverRoot(status: 0)
+        XCTAssertThrowsError(
+            try SetupEngine.runPreflight(cxr: cxr, log: tempLog(in: cxr), archPath: try fakeArch(status: 1))
+        ) { error in
+            XCTAssertTrue("\(error)".contains("Rosetta"), "\(error)")
+        }
+    }
+
+    func testPreflightFailsWhenWineCannotStart() throws {
+        let cxr = try fakeCrossOverRoot(status: 1, output: "dyld: Library not loaded\n")
+        XCTAssertThrowsError(
+            try SetupEngine.runPreflight(cxr: cxr, log: tempLog(in: cxr), archPath: try fakeArch(status: 0))
+        ) { error in
+            XCTAssertTrue("\(error)".contains("wine failed to start"), "\(error)")
+        }
+    }
+
+    func testPreflightFailsWhenWinePrintsNoVersion() throws {
+        // A zero exit with no version output is also a broken loader chain (e.g. a silent kill
+        // relayed as an empty string) — do not accept it.
+        let cxr = try fakeCrossOverRoot(status: 0, output: "")
+        XCTAssertThrowsError(
+            try SetupEngine.runPreflight(cxr: cxr, log: tempLog(in: cxr), archPath: try fakeArch(status: 0))
+        ) { error in
+            XCTAssertTrue("\(error)".contains("wine failed to start"), "\(error)")
+        }
+    }
+
     // MARK: - Patched-app detection
 
     func testStockCrossOverIsNotAcceptedAsPatched() throws {

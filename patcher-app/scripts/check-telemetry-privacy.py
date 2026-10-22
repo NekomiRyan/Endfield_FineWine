@@ -117,7 +117,8 @@ allowed_metadata = swift_strings(metadata_block)
 check(
     allowed_metadata == {
         "gptk", "duration_seconds", "failed_step", "cross_over_build",
-        "setup_backend", "setup_msync", "setup_upscaling", "installer_status",
+        "setup_backend", "setup_msync", "setup_msync_fallback", "setup_upscaling",
+        "installer_status",
     },
     "telemetry metadata allowlist is exact",
 )

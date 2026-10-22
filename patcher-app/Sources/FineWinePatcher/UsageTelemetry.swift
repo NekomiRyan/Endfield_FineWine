@@ -16,7 +16,8 @@ enum UsageTelemetry {
     /// to leak a path, bottle name or identifier by adding a new key.
     static let allowedMetadataKeys: Set<String> = [
         "gptk", "duration_seconds", "failed_step", "cross_over_build",
-        "setup_backend", "setup_msync", "setup_upscaling", "installer_status",
+        "setup_backend", "setup_msync", "setup_msync_fallback", "setup_upscaling",
+        "installer_status",
     ]
 
     private struct Event: Encodable {
@@ -81,6 +82,7 @@ enum UsageTelemetry {
         failedStep: Int?,
         durationSeconds: Int,
         settings: BottleSettings,
+        msyncFallback: Bool,
         installerStarted: Bool,
         installerExit: Int32?,
         bottleName: String,
@@ -94,6 +96,9 @@ enum UsageTelemetry {
             "installer_status": installerExit.map { "exited:\($0)" } ?? (installerStarted ? "started" : "not_started"),
         ]
         if let failedStep { metadata["failed_step"] = String(failedStep) }
+        // Only set when the MSync-off fallback retry actually ran — the key's absence means
+        // bottle creation did not need (or could not try) the fallback.
+        if msyncFallback { metadata["setup_msync_fallback"] = "true" }
 
         // Redact before the excerpt is built, so a line is only ever held in memory in its
         // redacted form once it reaches the preview/send path.

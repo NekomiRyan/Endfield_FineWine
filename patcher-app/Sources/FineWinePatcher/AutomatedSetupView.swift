@@ -455,6 +455,12 @@ struct AutomatedSetupView: View {
                         Label("Bottle “\(bottle)” created", systemImage: "checkmark.seal.fill")
                             .font(.callout.weight(.medium))
                             .foregroundStyle(.green)
+                        if setup.msyncFallback {
+                            Text("MSync was disabled for this bottle: creating it failed with MSync on, so setup retried once without it (the same workaround scripts/create-bottle.sh documents). You can turn MSync back on in the bottle's settings if the game runs.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         if setup.installerRunning {
                             Text("The Gryphline installer is open. Finish it in the window behind this sheet — log in and let it download the game. When it exits, this app registers the launcher's menu entries.")
                                 .font(.caption)

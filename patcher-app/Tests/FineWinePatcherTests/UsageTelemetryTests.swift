@@ -95,7 +95,7 @@ final class UsageTelemetryTests: XCTestCase {
 
         let prompt = UsageTelemetry.makeSetupPrompt(
             succeeded: false, failedStep: 1, durationSeconds: 19,
-            settings: settings, installerStarted: true, installerExit: 11,
+            settings: settings, msyncFallback: false, installerStarted: true, installerExit: 11,
             bottleName: settings.trimmedName,
             logs: [("installer-Private Bottle.log", log)]
         )

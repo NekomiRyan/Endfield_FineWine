@@ -28,6 +28,7 @@ final class PayloadModuleTests: XCTestCase {
             "lib/wine/x86_64-windows/ntoskrnl.exe",
             "lib/wine/x86_64-windows/lsass.exe",
             "lib/wine/x86_64-windows/wineboot.exe",
+            "lib/wine/x86_64-windows/rundll32.exe",
             "bin/wineserver",
             "CrossOver-Hosted Application/wineserver",
             "lib64/libMoltenVK.dylib",

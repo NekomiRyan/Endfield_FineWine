@@ -100,7 +100,7 @@ cmd_fetch() {
 cmd_apply() {
   ui_begin apply 3 "Applying patches (em-backports -> misc -> ace-core -> macOS)"
   [ -d "$WINE_SRC/.git" ] || { echo "run 'fetch' first"; exit 1; }
-  local P="$REPO/patches" list
+  local P="$REPO/patches" list n unit
   list="$(ls "$P"/stage2-dwproton/em-backports/*.patch 2>/dev/null | sort)
 $(ls "$P"/stage2-dwproton/misc/*.patch 2>/dev/null | sort)
 $(ls "$P"/stage2-dwproton/ace-core/*.patch 2>/dev/null | sort)
@@ -108,8 +108,9 @@ $(ls "$P"/stage1-macos/*.patch 2>/dev/null | sort)"
   # shellcheck disable=SC2086 # patch paths contain no spaces
   set -- $list
   [ $# -gt 0 ] || { echo "no patches found under $P"; exit 1; }
-  UI_LINES_RE='^applying '; UI_LINES_TOTAL=$#     # per-patch progress bar
-  ui_run "$BUILD_DIR/apply.log" "applying $# patches" sh -c '
+  n=$#; unit="patches"; [ "$n" -eq 1 ] && unit="patch"
+  UI_LINES_RE='^applying '; UI_LINES_TOTAL=$n     # per-patch progress bar
+  ui_run "$BUILD_DIR/apply.log" "applying $n $unit" sh -c '
       cd "$1" || exit 1; shift
       for f in "$@"; do
         printf "applying %s\n" "$(basename "$f")"

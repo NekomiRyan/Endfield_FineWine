@@ -59,25 +59,29 @@ cmd_fetch() {
 cmd_apply() {
   ui_begin apply 1 "Applying patches/moltenvk"
   [ -d "$MVK_SRC/.git" ] || { echo "run 'fetch' first"; exit 1; }
-  local list
+  local list n unit
   list=$(ls "$P"/spirv-cross/*.patch 2>/dev/null)
   # shellcheck disable=SC2086 # patch paths contain no spaces
   set -- $list
+  n=$#; unit="patches"; [ "$n" -eq 1 ] && unit="patch"
   UI_LINES_RE='^applying '; UI_LINES_TOTAL=$#     # per-patch progress bar
-  ui_run "$BUILD_DIR/moltenvk-apply-spvc.log" "patching SPIRV-Cross ($# patches)" sh -c '
+  ui_run "$BUILD_DIR/moltenvk-apply-spvc.log" "patching SPIRV-Cross ($n $unit)" sh -c '
+      d="$1"; shift                 # $1 is the repo dir; loop over the patches only
       for f in "$@"; do
         printf "applying %s\n" "$(basename "$f")"
-        git -C "$1" apply "$f" || { echo "patch failed: $f"; exit 1; }
+        git -C "$d" apply "$f" || { echo "patch failed: $f"; exit 1; }
       done' ui_sh "$SPVC_SRC" "$@" \
     || { echo "SPIRV-Cross patch failed — see $BUILD_DIR/moltenvk-apply-spvc.log"; exit 1; }
   list=$(ls "$P"/*.patch 2>/dev/null)
   # shellcheck disable=SC2086
   set -- $list
+  n=$#; unit="patches"; [ "$n" -eq 1 ] && unit="patch"
   UI_LINES_RE='^applying '; UI_LINES_TOTAL=$#     # ui_run resets knobs after each call
-  ui_run "$BUILD_DIR/moltenvk-apply-mvk.log" "patching MoltenVK ($# patches)" sh -c '
+  ui_run "$BUILD_DIR/moltenvk-apply-mvk.log" "patching MoltenVK ($n $unit)" sh -c '
+      d="$1"; shift                 # $1 is the repo dir; loop over the patches only
       for f in "$@"; do
         printf "applying %s\n" "$(basename "$f")"
-        git -C "$1" apply "$f" || { echo "patch failed: $f"; exit 1; }
+        git -C "$d" apply "$f" || { echo "patch failed: $f"; exit 1; }
       done' ui_sh "$MVK_SRC" "$@" \
     || { echo "MoltenVK patch failed — see $BUILD_DIR/moltenvk-apply-mvk.log"; exit 1; }
   ui_end

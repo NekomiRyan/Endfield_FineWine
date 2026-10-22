@@ -243,6 +243,32 @@ final class AutomatedSetupTests: XCTestCase {
         }
     }
 
+    func testPreflightPassesForCrossOverBanner() throws {
+        // The patched CrossOver's `bin/wine --version` prints CrossOver's banner, not Wine's
+        // `wine-x.y` string. That is a healthy run and must not fail the setup.
+        let banner = """
+            Product Name: CrossOver
+            Public Version: 26.3.0
+            Product Version: 26.3.0.39832
+            Build Tag: cxoffice-26.3.0rc2
+            Build Timestamp: 20260715T103801Z
+            """
+        let cxr = try fakeCrossOverRoot(status: 0, output: banner)
+        let log = tempLog(in: cxr)
+        try SetupEngine.runPreflight(cxr: cxr, log: log, archPath: try fakeArch(status: 0))
+        let text = try String(contentsOf: log, encoding: .utf8)
+        XCTAssertTrue(text.contains("preflight ok"), text)
+    }
+
+    func testWineVersionOutputMustNameWineOrCrossOver() {
+        XCTAssertTrue(SetupEngine.wineVersionLooksValid("wine-11.0"))
+        XCTAssertTrue(SetupEngine.wineVersionLooksValid("Product Name: CrossOver\nPublic Version: 26.3.0"))
+        XCTAssertTrue(SetupEngine.wineVersionLooksValid("cxoffice-26.3.0rc2"))
+        XCTAssertFalse(SetupEngine.wineVersionLooksValid(""))
+        XCTAssertFalse(SetupEngine.wineVersionLooksValid("   \n"))
+        XCTAssertFalse(SetupEngine.wineVersionLooksValid("some unrelated output"))
+    }
+
     func testPreflightFailsWhenWinePrintsNoVersion() throws {
         // A zero exit with no version output is also a broken loader chain (e.g. a silent kill
         // relayed as an empty string) — do not accept it.

@@ -438,13 +438,27 @@ final class SetupEngine: ObservableObject {
         }
         let wine = runCaptured(cxr.appendingPathComponent("bin/wine").path, ["--version"])
         append(log: log, text: "$ bin/wine --version -> exit \(wine.status)\n\(wine.output)")
-        guard wine.status == 0, wine.output.contains("wine") else {
+        guard wine.status == 0, wineVersionLooksValid(wine.output) else {
             throw Failure(message: """
                 wine failed to start (exit \(wine.status)) — the patched CrossOver copy is broken \
                 or the machine cannot run its x86_64 binaries. See the preflight log for output.
                 """)
         }
         append(log: log, text: "preflight ok: \(wine.output.trimmingCharacters(in: .whitespacesAndNewlines))\n")
+    }
+
+    /// Whether `wine --version` output proves that Wine actually ran.
+    ///
+    /// WineHQ builds print `wine-11.0`, but the CrossOver trees this project patches print
+    /// CrossOver's banner instead (`Product Name: CrossOver`, `Public Version: 26.3.0`, …),
+    /// which contains neither "wine" nor a version on its first line. Any non-empty output
+    /// naming Wine or CrossOver counts as healthy; empty output stays the silent-kill
+    /// signature that must fail.
+    nonisolated static func wineVersionLooksValid(_ output: String) -> Bool {
+        let text = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return false }
+        let lower = text.lowercased()
+        return lower.contains("wine") || lower.contains("crossover") || lower.contains("cxoffice")
     }
 
     /// Removes the partial bottle directory a failed `cxbottle --create` leaves behind (it can

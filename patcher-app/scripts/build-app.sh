@@ -30,6 +30,13 @@ VERSION="${VERSION:-1.1.0}"
 PAYLOAD_DIR="${PAYLOAD_DIR:-$REPO/build/wine-build64}"
 MOLTENVK_DIR="${MOLTENVK_DIR:-$REPO/build/moltenvk-out}"
 
+# Terminal dashboard (progress bars + live log tail). Must be sourced before any
+# real work so `zsh patcher-app/scripts/build-app.sh` can hand over to /bin/bash.
+UI_SELF="$0"
+. "$REPO/scripts/lib/build-ui.sh"
+ui_init "FineWine — FineWine Patcher ${VERSION}"
+
+ui_begin payload-fetch 5 "Checking for pre-built Wine modules"
 # Fall back to pre-packaged modules in dist/ if build directory does not exist
 if [ ! -d "$PAYLOAD_DIR" ] && [ -d "$REPO/dist/endfield-wine-modules" ]; then
   PAYLOAD_DIR="$REPO/dist/endfield-wine-modules"
@@ -42,11 +49,23 @@ if [ ! -d "$PAYLOAD_DIR" ] && [ "${ALLOW_MISSING_PAYLOAD:-0}" != "1" ]; then
   if command -v gh >/dev/null 2>&1 && gh release download --repo stoicswe/Endfield_FineWine -p "endfield-wine-modules.tar.gz" -D /tmp 2>/dev/null; then
     tar -xzf /tmp/endfield-wine-modules.tar.gz -C "$REPO/dist"
     PAYLOAD_DIR="$REPO/dist/endfield-wine-modules"
-  elif curl -sLf "https://github.com/stoicswe/Endfield_FineWine/releases/download/1.2.0/endfield-wine-modules.tar.gz" -o /tmp/endfield-wine-modules.tar.gz 2>/dev/null; then
-    tar -xzf /tmp/endfield-wine-modules.tar.gz -C "$REPO/dist"
-    PAYLOAD_DIR="$REPO/dist/endfield-wine-modules"
+  else
+    # curl fallback with a byte-accurate progress bar (Content-Length best effort)
+    url="https://github.com/stoicswe/Endfield_FineWine/releases/download/1.2.0/endfield-wine-modules.tar.gz"
+    mkdir -p "$HERE/build"
+    len=$(curl -sIL "$url" | grep -i '^content-length:' | tail -n 1 | tr -dc '0-9') || len=0
+    case "$len" in ''|*[!0-9]*) len=0 ;; esac
+    [ "$len" -gt 0 ] && { UI_PROBE_FILE="/tmp/endfield-wine-modules.tar.gz"; UI_PROBE_TOTAL="$len"; }
+    ui_run "$HERE/build/payload-download.log" "downloading endfield-wine-modules.tar.gz" \
+      curl -fsSL "$url" -o /tmp/endfield-wine-modules.tar.gz || true
+    UI_PROBE_FILE=""; UI_PROBE_TOTAL=0
+    if [ -s /tmp/endfield-wine-modules.tar.gz ]; then
+      tar -xzf /tmp/endfield-wine-modules.tar.gz -C "$REPO/dist"
+      PAYLOAD_DIR="$REPO/dist/endfield-wine-modules"
+    fi
   fi
 fi
+ui_end
 
 CODESIGN_ID="${CODESIGN_ID:--}"
 OUT="$HERE/build"
@@ -57,14 +76,17 @@ ok(){  printf '  \033[32m✓\033[0m %s\n' "$*"; }
 warn(){ printf '  \033[33m!\033[0m %s\n' "$*"; }
 
 # ---------------------------------------------------------------- 1. compile
-log "Compiling (swift build, release)"
-swift build -c release --package-path "$HERE"
+ui_begin compile 40 "Compiling (swift build, release)"
+mkdir -p "$OUT"   # for build.log (swift build does not create OUT itself)
+ui_run "$HERE/build/build.log" "swift build -c release" \
+  swift build -c release --package-path "$HERE"
 BIN="$(swift build -c release --package-path "$HERE" --show-bin-path)/$EXE"
 [ -x "$BIN" ] || { echo "ERROR: build produced no executable at $BIN"; exit 1; }
 ok "$(file -b "$BIN")"
+ui_end
 
 # ---------------------------------------------------------------- 2. assemble bundle
-log "Assembling $APP_NAME.app"
+ui_begin bundle 12 "Assembling $APP_NAME.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/licenses" \
          "$APP/Contents/Resources/payload/x86_64-unix" \
@@ -120,9 +142,10 @@ $ICON_PLIST
 PLIST
 plutil -lint -s "$APP/Contents/Info.plist"
 ok "bundle skeleton + Info.plist"
+ui_end
 
 # ---------------------------------------------------------------- 3. payload
-log "Staging the pre-built Wine modules (payload) from $PAYLOAD_DIR and MoltenVK from $MOLTENVK_DIR"
+ui_begin payload 28 "Staging the pre-built Wine modules (payload) from $PAYLOAD_DIR and MoltenVK from $MOLTENVK_DIR"
 find_module(){ # flat-name  tree-relative-path
   if   [ -f "$PAYLOAD_DIR/$2" ]; then echo "$PAYLOAD_DIR/$2"
   elif [ -f "$PAYLOAD_DIR/$1" ]; then echo "$PAYLOAD_DIR/$1"
@@ -143,6 +166,7 @@ else MVK=""; fi
 if [ -z "$NTDLL" ] || [ -z "$KERNEL32" ] || [ -z "$NTOSKRNL" ] || [ -z "$LSASS" ] || [ -z "$WINEBOOT" ] || [ -z "$RUNDLL32" ] || [ -z "$WINESERVER" ] || [ -z "$MVK" ]; then
   if [ "${ALLOW_MISSING_PAYLOAD:-0}" = "1" ]; then
     warn "payload modules not found — building WITHOUT payload (smoke test only)"
+    ui_skip
   else
     echo "ERROR: payload modules not found under $PAYLOAD_DIR (Wine) / $MOLTENVK_DIR (MoltenVK)"
     echo "       Run scripts/build-wine.sh all and scripts/build-moltenvk.sh all"
@@ -188,10 +212,11 @@ else
     codesign --force --sign "$CODESIGN_ID" "$f" 2>/dev/null || true
   done
   ok "payload staged: ntdll.so, kernel32.dll, ntoskrnl.exe, lsass.exe, wineboot.exe, wineserver, libMoltenVK.dylib"
+  ui_end
 fi
 
 # ---------------------------------------------------------------- 4. sign
-log "Signing ($CODESIGN_ID)"
+ui_begin sign 15 "Signing ($CODESIGN_ID)"
 if [ "$CODESIGN_ID" = "-" ]; then
   codesign --force --sign - "$APP"
 else
@@ -199,6 +224,7 @@ else
 fi
 codesign --verify "$APP"
 ok "signature verifies"
+ui_end
 
 # ---------------------------------------------------------------- 5. done
 log "Done -> $APP"
@@ -215,3 +241,4 @@ Notes:
     libMoltenVK.dylib is Apache-2.0: publish the patches + exact CrossOver source used
     (see patcher-app/README.md).
 EOF
+ui_finish

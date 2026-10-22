@@ -86,6 +86,11 @@ open /Applications/CrossOver_Endfield_Patch.app   # 4. run the game — NOT the 
 
 Full requirements, a manual (auditable) deployment, the bottle/Gryphline setup, and launch options: **[docs/installation.md](docs/installation.md)**.
 
+> The build scripts render a live dashboard in the terminal (step checklist, progress bars, a
+> scrolling tail of each step's log; full logs land in `build/*.log`). Piped output / CI gets the
+> plain log instead — set `NO_UI=1` to force it. Full output of every step is always written to
+> `build/<step>.log`.
+
 ---
 
 ## Technical Architecture (Under The Hood)

@@ -57,7 +57,26 @@ struct BottleSettings: Equatable {
         if upscaling, let key = backend.upscalerKey {
             pairs.append((key, "1"))
         }
-        return pairs
+        return Self.withoutUnsupportedMetal4Properties(pairs)
+    }
+
+    /// The D3DMetal property keys that select the Metal 4 backend. GPTK4 (D3DMetal 4) guides
+    /// write them as `D3DM_MTL4=1` or as a `"D3D_MTL_4" = "1"` line in cxbottle.conf, and
+    /// GPTK4 beta 2 even makes Metal 4 the DirectX 12 default — but only on macOS 27+.
+    static let metal4PropertyKeys: Set<String> = ["D3DM_MTL4", "D3D_MTL_4"]
+
+    /// The first macOS release whose D3DMetal supports Metal 4.
+    static let metal4OSMajor = 27
+
+    /// Drops Metal 4 property keys when this Mac cannot use them. Metal 4 is macOS 27-era
+    /// software: on macOS 26 such keys would force D3DMetal 4 down an unsupported backend, so
+    /// they must never reach a bottle config — whatever asked for them.
+    static func withoutUnsupportedMetal4Properties(
+        _ pairs: [(key: String, value: String)],
+        osMajor: Int = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+    ) -> [(key: String, value: String)] {
+        guard osMajor < metal4OSMajor else { return pairs }
+        return pairs.filter { !metal4PropertyKeys.contains($0.key.uppercased()) }
     }
 
     var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }

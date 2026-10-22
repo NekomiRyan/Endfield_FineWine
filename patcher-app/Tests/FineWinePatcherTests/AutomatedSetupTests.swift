@@ -111,6 +111,47 @@ final class AutomatedSetupTests: XCTestCase {
         }
     }
 
+    // MARK: - Metal 4 properties vs. macOS version
+
+    func testMetal4PropertiesAreStrippedBeforeMacOS27() {
+        // The GPTK4 guides' two spellings of the Metal 4 opt-in (plus a future variant) must
+        // never survive into a bottle config on macOS 26 — Metal 4 is macOS 27-era software.
+        let pairs: [(key: String, value: String)] = [
+            ("CX_GRAPHICS_BACKEND", "d3dmetal"),
+            ("D3DM_MTL4", "1"),
+            ("D3D_MTL_4", "1"),
+            ("d3dm_mtl4", "1"),
+            ("WINEMSYNC", "1"),
+        ]
+        let kept = BottleSettings.withoutUnsupportedMetal4Properties(pairs, osMajor: 26)
+        XCTAssertEqual(
+            Set(kept.map { $0.key }),
+            ["CX_GRAPHICS_BACKEND", "WINEMSYNC"]
+        )
+    }
+
+    func testMetal4PropertiesAreKeptFromMacOS27On() {
+        let pairs: [(key: String, value: String)] = [
+            ("CX_GRAPHICS_BACKEND", "d3dmetal"),
+            ("D3DM_MTL4", "1"),
+            ("D3D_MTL_4", "1"),
+            ("WINEMSYNC", "1"),
+        ]
+        for osMajor in [27, 28, 30] {
+            let kept = BottleSettings.withoutUnsupportedMetal4Properties(pairs, osMajor: osMajor)
+            XCTAssertEqual(kept.count, pairs.count, "osMajor \(osMajor)")
+        }
+    }
+
+    func testDefaultSetupPropertiesNeverIncludeMetal4() {
+        // Whatever the OS: the stock settings the wizard writes contain no Metal 4 property.
+        let settings = BottleSettings()
+        let env = Dictionary(uniqueKeysWithValues: settings.environment.map { ($0.key, $0.value) })
+        for key in BottleSettings.metal4PropertyKeys {
+            XCTAssertNil(env[key.uppercased()], key)
+        }
+    }
+
     // MARK: - Patched-app detection
 
     func testStockCrossOverIsNotAcceptedAsPatched() throws {

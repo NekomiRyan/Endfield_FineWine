@@ -12,6 +12,14 @@ struct PatchError: LocalizedError {
 struct PayloadModule {
     let payloadSubpath: String    // relative to Resources/payload/
     let crossoverSubpath: String  // relative to Contents/SharedSupport/CrossOver/
+    /// true when CrossOver ships no stock copy of this module (e.g. lsass.exe) and we add it.
+    let isNew: Bool
+
+    init(payloadSubpath: String, crossoverSubpath: String, isNew: Bool = false) {
+        self.payloadSubpath = payloadSubpath
+        self.crossoverSubpath = crossoverSubpath
+        self.isNew = isNew
+    }
 }
 
 enum Payload {
@@ -22,9 +30,31 @@ enum Payload {
         // KiUser*Dispatcher int3 spoof
         PayloadModule(payloadSubpath: "x86_64-windows/kernel32.dll",
                       crossoverSubpath: "lib/wine/x86_64-windows/kernel32.dll"),
-        // ntoskrnl.exe em-backports
+        // ntoskrnl.exe em-backports + ACE-CORE DriverInit/return-address fix
         PayloadModule(payloadSubpath: "x86_64-windows/ntoskrnl.exe",
                       crossoverSubpath: "lib/wine/x86_64-windows/ntoskrnl.exe"),
+        // ACE-CORE scans the process list for lsass.exe; stock CrossOver 26.3 ships none, so add it.
+        PayloadModule(payloadSubpath: "x86_64-windows/lsass.exe",
+                      crossoverSubpath: "lib/wine/x86_64-windows/lsass.exe", isNew: true),
+        // Patched wineboot.exe starts the lsass.exe stub at boot.
+        PayloadModule(payloadSubpath: "x86_64-windows/wineboot.exe",
+                      crossoverSubpath: "lib/wine/x86_64-windows/wineboot.exe"),
+        // rundll32.exe is EXEC'd by cxbottle for the 'win11Install crossover.inf' step that
+        // creates every bottle. Our rebuild drops the visible helper window that hangs/fails
+        // prefix creation on macOS 26 (WineHQ bug 59595) — upstream Wine has not merged a fix,
+        // so we ship the patched builtin. Like wineserver it is an exec'd Mach-O and needs its
+        // own signature (see requiresOwnSignature).
+        PayloadModule(payloadSubpath: "x86_64-windows/rundll32.exe",
+                      crossoverSubpath: "lib/wine/x86_64-windows/rundll32.exe"),
+        // wineserver: its server-side protocol version must match the swapped ntdll.so's client
+        // version. Stock CrossOver ships an older wineserver, so leaving it in place makes every
+        // wine process die with "wine client error:0: version mismatch …" before any window shows.
+        // CrossOver installs the same binary at two paths; both must be replaced. This is also the
+        // module that carries the ACE-CORE token-object fix (see docs/14-ace-core-regression.md).
+        PayloadModule(payloadSubpath: "server/wineserver",
+                      crossoverSubpath: "bin/wineserver"),
+        PayloadModule(payloadSubpath: "server/wineserver",
+                      crossoverSubpath: "CrossOver-Hosted Application/wineserver"),
         // Patched MoltenVK (Vulkan/DXVK/vkd3d paths; replaces CrossOver's bundled copy).
         // Built by scripts/build-moltenvk.sh and baked into the payload by build-app.sh.
         PayloadModule(payloadSubpath: "lib64/libMoltenVK.dylib",
@@ -87,11 +117,15 @@ struct GPTKSource: Identifiable, Hashable, Sendable {
               fm.fileExists(atPath: url.appendingPathComponent("D3DMetal.framework").path) else { return nil }
         self.url = url
         self.version = Self.frameworkVersion(plist)
-        let parts = url.standardizedFileURL.pathComponents   // ["/", "Volumes", "<label>", "redist", "lib", "external"]
-        if parts.count >= 6, parts[1] == "Volumes" {
+        let parts = url.standardizedFileURL.pathComponents
+        if parts.count >= 3, parts[1] == "Volumes" {
             volumeName = parts[2]
         } else {
-            volumeName = url.deletingLastPathComponent().lastPathComponent
+            var cur = url
+            while ["external", "lib", "redist"].contains(cur.lastPathComponent.lowercased()), cur.pathComponents.count > 1 {
+                cur = cur.deletingLastPathComponent()
+            }
+            volumeName = cur.lastPathComponent
         }
     }
 
@@ -102,14 +136,146 @@ struct GPTKSource: Identifiable, Hashable, Sendable {
         return parsed["CFBundleShortVersionString"] as? String
     }
 
-    /// Every GPTK redist currently mounted under /Volumes (`<volume>/redist/lib/external`).
+    /// Attaches a DMG using hdiutil and returns the mounted volume URL if successful.
+    @discardableResult
+    static func attachDMG(_ dmgURL: URL) -> URL? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+        p.arguments = ["attach", "-nobrowse", "-readonly", "-plist", dmgURL.path]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = Pipe()
+        do {
+            try p.run()
+            p.waitUntilExit()
+            guard p.terminationStatus == 0 else { return nil }
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            guard let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+                  let entities = plist["system-entities"] as? [[String: Any]] else { return nil }
+            for entity in entities {
+                if let mountPoint = entity["mount-point"] as? String {
+                    return URL(fileURLWithPath: mountPoint)
+                }
+            }
+        } catch {
+            return nil
+        }
+        return nil
+    }
+
+    /// Checks if a volume with the given name (or prefix) is already mounted under /Volumes.
+    static func findMountedVolume(named name: String) -> URL? {
+        let fm = FileManager.default
+        guard let volumes = try? fm.contentsOfDirectory(at: URL(fileURLWithPath: "/Volumes"),
+                                                        includingPropertiesForKeys: nil) else { return nil }
+        let target = name.lowercased()
+        return volumes.first {
+            let n = $0.lastPathComponent.lowercased()
+            return n == target || n.hasPrefix(target) || target.hasPrefix(n)
+        }
+    }
+
+    /// Resolves a GPTKSource from a candidate URL (direct folder, volume, or .dmg file).
+    static func resolve(from candidate: URL) -> GPTKSource? {
+        let fm = FileManager.default
+        let standard = candidate.standardizedFileURL
+
+        // 1. If it's a DMG file directly
+        if standard.pathExtension.lowercased() == "dmg" {
+            let dmgBase = standard.deletingPathExtension().lastPathComponent
+            if let existing = findMountedVolume(named: dmgBase), let src = resolve(from: existing) {
+                return src
+            }
+            if let mounted = attachDMG(standard) {
+                return resolve(from: mounted)
+            }
+            return nil
+        }
+
+        // 2. Direct match or standard subpaths
+        let directSubpaths = [
+            standard,
+            standard.appendingPathComponent("redist/lib/external", isDirectory: true),
+            standard.appendingPathComponent("lib/external", isDirectory: true),
+            standard.appendingPathComponent("external", isDirectory: true),
+        ]
+        for path in directSubpaths {
+            if let src = GPTKSource(url: path) {
+                return src
+            }
+        }
+
+        // 3. If candidate is a directory (such as /Volumes/Game Porting Toolkit), check for nested DMGs
+        var isDir: ObjCBool = false
+        if fm.fileExists(atPath: standard.path, isDirectory: &isDir), isDir.boolValue {
+            if let contents = try? fm.contentsOfDirectory(at: standard, includingPropertiesForKeys: nil) {
+                let dmgs = contents.filter { $0.pathExtension.lowercased() == "dmg" }
+                    .sorted { a, b in
+                        let aEval = a.lastPathComponent.lowercased().contains("evaluation")
+                        let bEval = b.lastPathComponent.lowercased().contains("evaluation")
+                        if aEval != bEval { return aEval }
+                        return a.lastPathComponent < b.lastPathComponent
+                    }
+                for dmg in dmgs {
+                    let dmgBase = dmg.deletingPathExtension().lastPathComponent
+                    if let existing = findMountedVolume(named: dmgBase), let src = resolve(from: existing) {
+                        return src
+                    }
+                    if let mounted = attachDMG(dmg) {
+                        if let src = resolve(from: mounted) {
+                            return src
+                        }
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Every GPTK redist currently mounted under /Volumes (`<volume>/redist/lib/external`),
+    /// plus mounted volumes containing an inner evaluation environment DMG.
     static func detectMounted() -> [GPTKSource] {
         let fm = FileManager.default
         guard let volumes = try? fm.contentsOfDirectory(at: URL(fileURLWithPath: "/Volumes"),
                                                         includingPropertiesForKeys: nil) else { return [] }
-        return volumes
-            .compactMap { GPTKSource(url: $0.appendingPathComponent("redist/lib/external", isDirectory: true)) }
-            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+
+        var results: [GPTKSource] = []
+        var seen = Set<String>()
+
+        // Pass 1: Direct check on all mounted volumes
+        for vol in volumes {
+            if let src = GPTKSource(url: vol.appendingPathComponent("redist/lib/external", isDirectory: true)) {
+                if seen.insert(src.id).inserted { results.append(src) }
+            }
+        }
+
+        // Pass 2: Check mounted volumes that contain an inner evaluation environment DMG
+        // (such as "/Volumes/Game Porting Toolkit" which contains "Evaluation environment...dmg")
+        for vol in volumes {
+            if let src = resolve(from: vol) {
+                if seen.insert(src.id).inserted { results.append(src) }
+            }
+        }
+
+        // Pass 3: Convenience: check ~/Downloads for Evaluation / Game Porting Toolkit DMGs if nothing in /Volumes
+        if results.isEmpty {
+            let downloads = fm.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+            if let files = try? fm.contentsOfDirectory(at: downloads, includingPropertiesForKeys: nil) {
+                let candidates = files.filter { url in
+                    let name = url.lastPathComponent.lowercased()
+                    return url.pathExtension.lowercased() == "dmg" &&
+                           (name.contains("game_porting_toolkit") || name.contains("evaluation"))
+                }
+                for dmg in candidates {
+                    if let src = resolve(from: dmg) {
+                        if seen.insert(src.id).inserted { results.append(src) }
+                    }
+                }
+            }
+        }
+
+        return results.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 }
 
@@ -119,11 +285,21 @@ struct CrossOverInfo {
 
     let url: URL
     let version: String?
+    /// CFBundleVersion — CrossOver's exact build. Point builds of "26.3" ship different Wine
+    /// modules (which is why wineserver has to be swapped too), so this is the field to quote when
+    /// a report only works on one build. Reported (anonymously) with patch statistics.
+    let build: String?
     let bundleIdentifier: String?
     let hasWineModules: Bool
 
     var isExpectedVersion: Bool { version?.hasPrefix(Self.expectedVersion) == true }
     var displayName: String { url.deletingPathExtension().lastPathComponent }
+    /// "26.3.0 (39832)" — version and build for the UI and reports.
+    var displayVersion: String {
+        let version = version ?? "unknown"
+        guard let build, !build.isEmpty, build != version else { return version }
+        return "\(version) (build \(build))"
+    }
 
     init(url: URL) {
         self.url = url
@@ -133,9 +309,12 @@ struct CrossOverInfo {
             plist = parsed
         }
         version = plist["CFBundleShortVersionString"] as? String
+        build = plist["CFBundleVersion"] as? String
         bundleIdentifier = plist["CFBundleIdentifier"] as? String
         let cxr = url.appendingPathComponent("Contents/SharedSupport/CrossOver")
-        hasWineModules = Payload.modules.allSatisfy {
+        // `isNew` modules (e.g. lsass.exe) are added by us and are absent from stock CrossOver,
+        // so only the modules CrossOver already ships decide whether this looks like a CrossOver app.
+        hasWineModules = Payload.modules.filter { !$0.isNew }.allSatisfy {
             FileManager.default.fileExists(atPath: cxr.appendingPathComponent($0.crossoverSubpath).path)
         }
     }
@@ -157,6 +336,8 @@ final class PatcherEngine: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var patchedApp: URL?
     @Published var errorMessage: String?
+    /// Set after a patch run finishes. The UI presents it with an explicit send/skip choice.
+    @Published var telemetryPrompt: UsageTelemetry.Prompt?
 
     // MARK: Mod (EFMI) chain phase (bottle-side; independent of the app patch above)
 
@@ -185,8 +366,6 @@ final class PatcherEngine: ObservableObject {
 
     func applyModChain(plan: ChainPlan) {
         guard !isRunning, !modIsRunning else { return }
-        let telemetryMetadata = ["backend": plan.backend.rawValue]
-        UsageTelemetry.record("mod_chain_apply_started", metadata: telemetryMetadata)
         modReset()
         modIsRunning = true
         modSteps = Self.modStepLabels.enumerated().map { Step(id: $0.offset, label: $0.element) }
@@ -222,7 +401,6 @@ final class PatcherEngine: ObservableObject {
                     self.modAppliedPlan = plan
                     self.modIsRunning = false
                 }
-                UsageTelemetry.record("mod_chain_apply_succeeded", metadata: telemetryMetadata)
             } catch {
                 let failed = current
                 await MainActor.run {
@@ -230,14 +408,12 @@ final class PatcherEngine: ObservableObject {
                     self.modError = error.localizedDescription
                     self.modIsRunning = false
                 }
-                UsageTelemetry.record("mod_chain_apply_failed", metadata: telemetryMetadata)
             }
         }
     }
 
     func revertModChain(importerDir: URL) {
         guard !isRunning, !modIsRunning else { return }
-        UsageTelemetry.record("mod_chain_revert_started")
         modReset()
         modIsRunning = true
         modSteps = Self.modRevertLabels.enumerated().map { Step(id: $0.offset, label: $0.element) }
@@ -250,16 +426,22 @@ final class PatcherEngine: ObservableObject {
                     self.modSteps[1].status = .done
                     self.modIsRunning = false
                 }
-                UsageTelemetry.record("mod_chain_revert_succeeded")
             } catch {
                 await MainActor.run {
                     self.modSteps[0].status = .failed
                     self.modError = error.localizedDescription
                     self.modIsRunning = false
                 }
-                UsageTelemetry.record("mod_chain_revert_failed")
             }
         }
+    }
+
+    nonisolated static let originalBundleIdentifier = "com.codeweavers.CrossOver"
+    nonisolated static var patchedBundleIdentifier: String {
+        if let env = ProcessInfo.processInfo.environment["BUNDLE_ID"], env.count == originalBundleIdentifier.count {
+            return env
+        }
+        return "com.codeweavers.CrossOvEF"
     }
 
     private static func stepLabels(includingGPTK: Bool) -> [String] {
@@ -269,6 +451,7 @@ final class PatcherEngine: ObservableObject {
         ]
         if includingGPTK { labels.append("Installing GPTK4 / D3DMetal") }
         labels += [
+            "Patching bundle ID and launcher seeds",
             "Re-sealing the bundle",
             "Verifying",
             "Moving the patched app into place",
@@ -280,9 +463,12 @@ final class PatcherEngine: ObservableObject {
         steps = []
         patchedApp = nil
         errorMessage = nil
+        telemetryPrompt = nil
     }
 
-    func patch(source: URL, destination: URL, gptk: GPTKSource? = nil) {
+    /// - Parameter reportTelemetry: `false` for a patch run that is part of a larger Automated
+    ///   Setup run — that run asks once at the end instead of prompting twice.
+    func patch(source: URL, destination: URL, gptk: GPTKSource? = nil, reportTelemetry: Bool = true) {
         guard !isRunning else { return }
         guard let payloadDir = Payload.directory, Payload.isComplete else {
             errorMessage = "This build of the patcher does not include the module payload (Wine + MoltenVK). Rebuild it with patcher-app/scripts/build-app.sh after scripts/build-wine.sh all and scripts/build-moltenvk.sh all."
@@ -290,10 +476,12 @@ final class PatcherEngine: ObservableObject {
         }
         reset()
         isRunning = true
-        steps = Self.stepLabels(includingGPTK: gptk != nil).enumerated().map { Step(id: $0.offset, label: $0.element) }
-        let telemetryMetadata = ["gptk": gptk == nil ? "false" : "true"]
-        UsageTelemetry.record("patch_started", metadata: telemetryMetadata)
+        steps = Self.stepLabels(includingGPTK: gptk != nil)
+            .enumerated().map { Step(id: $0.offset, label: $0.element) }
         let patchStartedAt = Date()
+        // Recorded with the (optional) statistics: CrossOver point builds of the same version can
+        // ship different Wine modules, and this is what identifies the source app in a report.
+        let crossOverBuild = CrossOverInfo(url: source).build
 
         Task.detached(priority: .userInitiated) {
             var current = 0
@@ -327,6 +515,10 @@ final class PatcherEngine: ObservableObject {
                 }
 
                 await begin(index)
+                try Self.patchBundleIdentifier(in: app)
+                await finish(index); index += 1
+
+                await begin(index)
                 try Self.resealBundle(app)
                 await finish(index); index += 1
 
@@ -338,24 +530,31 @@ final class PatcherEngine: ObservableObject {
                 try Self.moveIntoPlace(app, destination: destination)
                 await finish(index); index += 1
 
+                let elapsed = Int(Date().timeIntervalSince(patchStartedAt))
+                var prompt: UsageTelemetry.Prompt? = UsageTelemetry.makePatchPrompt(
+                    succeeded: true, gptk: gptk != nil, failedStep: nil, durationSeconds: elapsed,
+                    crossOverBuild: crossOverBuild)
+                if !reportTelemetry { prompt = nil }
+                let promptToSend = prompt
                 await MainActor.run {
                     self.patchedApp = destination
                     self.isRunning = false
+                    self.telemetryPrompt = promptToSend
                 }
-                UsageTelemetry.record("patch_succeeded", metadata: telemetryMetadata.merging([
-                    "duration_seconds": String(Int(Date().timeIntervalSince(patchStartedAt)))
-                ]) { current, _ in current })
             } catch {
                 let failed = current
+                let elapsed = Int(Date().timeIntervalSince(patchStartedAt))
+                var prompt: UsageTelemetry.Prompt? = UsageTelemetry.makePatchPrompt(
+                    succeeded: false, gptk: gptk != nil, failedStep: failed, durationSeconds: elapsed,
+                    crossOverBuild: crossOverBuild)
+                if !reportTelemetry { prompt = nil }
+                let promptToSend = prompt
                 await MainActor.run {
                     if failed < self.steps.count { self.steps[failed].status = .failed }
                     self.errorMessage = error.localizedDescription
                     self.isRunning = false
+                    self.telemetryPrompt = promptToSend
                 }
-                UsageTelemetry.record("patch_failed", metadata: telemetryMetadata.merging([
-                    "failed_step": String(failed),
-                    "duration_seconds": String(Int(Date().timeIntervalSince(patchStartedAt)))
-                ]) { current, _ in current })
             }
         }
     }
@@ -406,22 +605,23 @@ final class PatcherEngine: ObservableObject {
             guard fm.fileExists(atPath: src.path) else {
                 throw PatchError("The bundled payload is missing \(module.payloadSubpath).")
             }
-            guard fm.fileExists(atPath: dst.path) else {
+            if fm.fileExists(atPath: dst.path) {
+                // Move the stock module aside under the same backup name the shell script uses, so
+                // the payload lands as a fresh file rather than overwriting a signed one in place.
+                let backup = dst.appendingPathExtension("cxorig")
+                if fm.fileExists(atPath: backup.path) {
+                    try fm.removeItem(at: dst)
+                } else {
+                    try fm.moveItem(at: dst, to: backup)
+                }
+            } else if !module.isNew {
                 throw PatchError("\(module.crossoverSubpath) not found in the copied app — is this really CrossOver \(CrossOverInfo.expectedVersion)?")
             }
-            // Move the stock module aside under the same backup name the shell script uses, so
-            // the payload lands as a fresh file rather than overwriting a signed one in place.
-            let backup = dst.appendingPathExtension("cxorig")
-            if fm.fileExists(atPath: backup.path) {
-                try fm.removeItem(at: dst)
-            } else {
-                try fm.moveItem(at: dst, to: backup)
-            }
             try fm.copyItem(at: src, to: dst)
-            // Only the Mach-O modules (ntdll.so, libMoltenVK.dylib) need a signature of their
-            // own to load on Apple Silicon. The PE modules are covered by the bundle seal, as in
-            // stock CrossOver.
-            if dst.pathExtension == "so" || dst.pathExtension == "dylib" {
+            // Only the Mach-O modules (ntdll.so, libMoltenVK.dylib, wineserver) need a signature
+            // of their own to load on Apple Silicon. The PE modules are covered by the bundle
+            // seal, as in stock CrossOver.
+            if requiresOwnSignature(dst) {
                 try run("/usr/bin/codesign", ["--force", "--sign", "-", dst.path])
             }
         }
@@ -492,6 +692,56 @@ final class PatcherEngine: ObservableObject {
         return Data(SHA256.hash(data: data))
     }
 
+    /// Mach-O payload modules that need a signature of their own to load on Apple Silicon.
+    /// `wineserver` has no extension but is a signed Mach-O executable like the `.so`/`.dylib`
+    /// libraries, so it must be treated the same when signing and when stripping for comparison.
+    /// `rundll32.exe` is likewise an exec'd Mach-O (the PE header rides inside); unlike the other
+    /// PE builtins it is never only mapped, so an unsigned copy gets killed before main().
+    private nonisolated static func requiresOwnSignature(_ url: URL) -> Bool {
+        let ext = url.pathExtension
+        return ext == "so" || ext == "dylib"
+            || url.lastPathComponent == "wineserver" || url.lastPathComponent == "rundll32.exe"
+    }
+
+    /// Content hash of a module with any embedded code signature removed. The Mach-O modules
+    /// (ntdll.so, libMoltenVK.dylib, wineserver) are ad-hoc re-signed after the swap; because
+    /// codesign's ad-hoc signature bytes differ across macOS/codesign versions, comparing the
+    /// signed file directly would report a false mismatch. Stripping the signature makes the
+    /// comparison depend only on the actual code. PE modules carry no embedded signature and are
+    /// hashed as-is.
+    nonisolated static func contentHash(_ url: URL) -> Data? {
+        guard let raw = try? Data(contentsOf: url, options: .alwaysMapped) else { return nil }
+        guard requiresOwnSignature(url) else {
+            return Data(SHA256.hash(data: raw))
+        }
+        let fm = FileManager.default
+        // codesign --remove-signature needs a writable file, so strip it from a temp copy.
+        // The file name itself is irrelevant here (we never sign), so a unique name is fine.
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("fw-content-\(UUID().uuidString)-\(url.lastPathComponent)")
+        defer { try? fm.removeItem(at: tmp) }
+        do {
+            try fm.copyItem(at: url, to: tmp)
+            // Removing a signature does not fully undo signing: codesign records the signature's
+            // allocation in the Mach-O's __LINKEDIT vmsize, and stripping from a CI/Developer-ID
+            // signed payload can leave different header bytes than stripping a locally ad-hoc
+            // signed copy. Re-sign both sides with the local ad-hoc identity first, so the
+            // signature layout (and therefore the stripped bytes) is canonical.
+            guard (try? run("/usr/bin/codesign", ["--force", "--sign", "-", "--identifier",
+                                                   "io.github.stoicswe.FineWinePatcher.content-hash",
+                                                   tmp.path])) != nil else {
+                return nil
+            }
+            guard (try? run("/usr/bin/codesign", ["--remove-signature", tmp.path])) != nil else {
+                return nil
+            }
+            let stripped = try Data(contentsOf: tmp, options: .alwaysMapped)
+            return Data(SHA256.hash(data: stripped))
+        } catch {
+            return nil
+        }
+    }
+
     private nonisolated static func codesignVerifies(_ path: String, deep: Bool) -> Bool {
         var args = ["--verify"]
         if deep { args += ["--deep", "--strict"] }
@@ -540,7 +790,13 @@ final class PatcherEngine: ObservableObject {
         for module in Payload.modules {
             let src = payloadDir.appendingPathComponent(module.payloadSubpath)
             let dst = cxr.appendingPathComponent(module.crossoverSubpath)
-            guard let a = fileSize(src), let b = fileSize(dst), a == b else {
+            // Compare module *content*, not raw bytes. The Mach-O modules are re-signed
+            // (ad-hoc) after the swap, and ad-hoc signatures are not byte-identical across
+            // codesign versions (the CI build runner's macOS vs. the user's), so a raw
+            // size/hash comparison fails even when the swap is perfectly fine.
+            // contentHash() strips the embedded signature first, so it is stable across
+            // codesign versions.
+            guard let a = contentHash(src), let b = contentHash(dst), a == b else {
                 throw PatchError("\(module.crossoverSubpath) does not match the bundled payload after the swap.")
             }
         }
@@ -569,6 +825,15 @@ final class PatcherEngine: ObservableObject {
               data.range(of: needle) != nil else {
             throw PatchError("ntdll.so is missing the lib64 rpath — D3DMetal would not work. Rebuild the patcher with scripts/build-app.sh (it adds the rpath to the payload).")
         }
+        // Verify bundle identifier
+        let infoPlist = app.appendingPathComponent("Contents/Info.plist")
+        guard let plistData = try? Data(contentsOf: infoPlist),
+              let plist = (try? PropertyListSerialization.propertyList(from: plistData, format: nil)) as? [String: Any],
+              let bid = plist["CFBundleIdentifier"] as? String,
+              bid == patchedBundleIdentifier else {
+            throw PatchError("The patched app's CFBundleIdentifier was not set to \(patchedBundleIdentifier).")
+        }
+
         // The whole bundle must verify, or macOS reports it as damaged and kills its binaries.
         do {
             try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
@@ -577,8 +842,94 @@ final class PatcherEngine: ObservableObject {
         }
     }
 
-    private nonisolated static func fileSize(_ url: URL) -> UInt64? {
-        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? UInt64) ?? nil
+    /// Patches the app's CFBundleIdentifier in Info.plist to `com.codeweavers.CrossOvEF`
+    /// and patches the seed launcher templates (`Contents/Resources/Menu Helper.cpbz2`
+    /// and `Bottle Helper.cpbz2`) so that launcher app bundles created by this patched
+    /// CrossOver will reference its bundle ID and always launch with the patched version.
+    private nonisolated static func patchBundleIdentifier(in app: URL) throws {
+        let fm = FileManager.default
+        let infoPlist = app.appendingPathComponent("Contents/Info.plist")
+        guard fm.fileExists(atPath: infoPlist.path) else {
+            throw PatchError("Info.plist not found in staged app.")
+        }
+        guard let data = try? Data(contentsOf: infoPlist),
+              var plist = (try? PropertyListSerialization.propertyList(from: data, options: .mutableContainersAndLeaves, format: nil)) as? [String: Any] else {
+            throw PatchError("Failed to parse Info.plist in staged app.")
+        }
+        plist["CFBundleIdentifier"] = patchedBundleIdentifier
+        let newData = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try newData.write(to: infoPlist, options: .atomic)
+
+        let resDir = app.appendingPathComponent("Contents/Resources", isDirectory: true)
+        let helpers = ["Menu Helper", "Bottle Helper"]
+        for helper in helpers {
+            let cpbz2 = resDir.appendingPathComponent("\(helper).cpbz2")
+            guard fm.fileExists(atPath: cpbz2.path) else { continue }
+            let tmpDir = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: resDir, create: true)
+            defer { try? fm.removeItem(at: tmpDir) }
+
+            // Extract cpbz2
+            try run("/bin/sh", ["-c", "cd '\(tmpDir.path)' && bzip2 -dc '\(cpbz2.path)' | cpio -idm 2>/dev/null"])
+
+            // Patch Info.plist if present in helper
+            let helperPlist = tmpDir.appendingPathComponent("Contents/Info.plist")
+            if fm.fileExists(atPath: helperPlist.path),
+               let hData = try? Data(contentsOf: helperPlist),
+               var hPlist = (try? PropertyListSerialization.propertyList(from: hData, options: .mutableContainersAndLeaves, format: nil)) as? [String: Any] {
+                if var secPolicy = hPlist["NSUpdateSecurityPolicy"] as? [String: Any],
+                   var allowProc = secPolicy["AllowProcesses"] as? [String: [String]] {
+                    for (k, arr) in allowProc {
+                        allowProc[k] = arr.map { $0 == originalBundleIdentifier ? patchedBundleIdentifier : $0 }
+                    }
+                    secPolicy["AllowProcesses"] = allowProc
+                    hPlist["NSUpdateSecurityPolicy"] = secPolicy
+                    if let newHData = try? PropertyListSerialization.data(fromPropertyList: hPlist, format: .xml, options: 0) {
+                        try? newHData.write(to: helperPlist, options: .atomic)
+                    }
+                }
+            }
+
+            // Patch Mach-O binary
+            let bin = tmpDir.appendingPathComponent("Contents/MacOS/\(helper)")
+            if fm.fileExists(atPath: bin.path) {
+                var binData = try Data(contentsOf: bin)
+                guard let target = (originalBundleIdentifier + "\0").data(using: .utf8),
+                      let replacement = (patchedBundleIdentifier + "\0").data(using: .utf8),
+                      target.count == replacement.count else {
+                    throw PatchError("Invalid bundle ID replacement length for \(helper).")
+                }
+                var replaced = false
+                while let range = binData.range(of: target) {
+                    binData.replaceSubrange(range, with: replacement)
+                    replaced = true
+                }
+                if replaced {
+                    try binData.write(to: bin, options: .atomic)
+                    // Sign outside Contents so codesign treats this as a Mach-O, not an app
+                    // bundle. CrossOver changes the helper's plist/resources when it creates
+                    // a launcher, so the seed must not seal either of them.
+                    let looseBin = tmpDir.appendingPathComponent(".\(helper).signing")
+                    try fm.moveItem(at: bin, to: looseBin)
+                    try run("/usr/bin/codesign", ["--force", "--sign", "-", "--options", "runtime",
+                                                  "--timestamp=none", "--identifier", "com.codeweavers.CrossOver.\(helper)",
+                                                  looseBin.path])
+                    try fm.moveItem(at: looseBin, to: bin)
+                    for sealPath in ["Contents/_CodeSignature", "Contents/CodeResources"] {
+                        let bundleSeal = tmpDir.appendingPathComponent(sealPath)
+                        if fm.fileExists(atPath: bundleSeal.path) { try fm.removeItem(at: bundleSeal) }
+                    }
+                }
+            }
+
+            // Repack cpbz2
+            let tmpCpbz2 = tmpDir.appendingPathComponent("\(helper).cpbz2.tmp")
+            try run("/bin/sh", ["-c", "cd '\(tmpDir.path)' && find . | cpio -o -H odc 2>/dev/null | bzip2 -c > '\(tmpCpbz2.path)'"])
+            guard fm.fileExists(atPath: tmpCpbz2.path) else {
+                throw PatchError("Failed to repack \(helper).cpbz2.")
+            }
+            try fm.removeItem(at: cpbz2)
+            try fm.moveItem(at: tmpCpbz2, to: cpbz2)
+        }
     }
 
     @discardableResult

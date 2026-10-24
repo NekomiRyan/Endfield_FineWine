@@ -8,27 +8,27 @@ The anti-cheat fixes get Endfield past ACE; this page is about making it *render
 
 > **On "Vulkan":** GPTK/D3DMetal does **not** provide Vulkan — it translates DirectX **straight to Metal**. Vulkan on Apple GPUs comes from **MoltenVK** (Vulkan → Metal), which CrossOver bundles and CXPatcher/Procyon upgrade. So there are two graphics families: **DirectX → Metal directly** (D3DMetal / DXMT — where GPTK lives) vs **DirectX/Vulkan → Vulkan → Metal** (DXVK / vkd3d + MoltenVK). The direct D3DMetal path is the faster one.
 
-## ⚠️ Run Endfield in DirectX 11 (or, experimentally, Vulkan)
+## Renderer: DirectX 11 (recommended) or Vulkan
 
-**For Endfield specifically: set the game's own renderer to DirectX 11.** Endfield defaults to Vulkan/DX12. DX12 fails under CrossOver (`vkd3d` can't compile its DXIL shaders → white screen), and Vulkan needs a newer MoltenVK than CrossOver ships ([below](#experimental-the-vulkan-renderer)). Setting the CrossOver *backend* to D3DMetal is **not** enough to reroute the game's DX12 off vkd3d — the game itself must run in **DirectX 11**:
+**For Endfield specifically, DirectX 11 is the most-tested renderer.** The game defaults to Vulkan/DX12. **Vulkan works** through MoltenVK — the patched app bundles a patched MoltenVK — while **DirectX 12 fails** under CrossOver (`vkd3d` can't compile its DXIL shaders → white screen). Setting the CrossOver *backend* to D3DMetal is **not** enough to reroute the game's DX12 off vkd3d — the game itself must run in **DirectX 11** or **Vulkan**:
 
 - start it with the Gryphline launcher's **Launch with DirectX 11** (in the dropdown next to Start), which passes `-force-d3d11`, **or**
 - launch `Endfield.exe` with `-force-d3d11` yourself ([`scripts/launch-endfield.sh`](../scripts/launch-endfield.sh) does).
 
-The in-game graphics settings have no API option, and the plain Start button uses the default renderer. The backend guidance below applies once the game is on a DirectX path. A game update can reset the renderer back to Vulkan/DX12 — that's the usual cause when the white screen "comes back" ([troubleshooting.md](troubleshooting.md)).
+The in-game graphics settings have no API option, and the plain Start button uses the default renderer. The backend guidance below applies once the game is on a DirectX path. A game update can reset the renderer back to DirectX 12 — that's the usual cause when the white screen "comes back" ([troubleshooting.md](troubleshooting.md)).
 
-### Experimental: the Vulkan renderer
+### The Vulkan renderer
 
-The game's Vulkan renderer runs through MoltenVK (Vulkan → Metal), not the bottle's D3DMetal setting, so the MoltenVK in the patched app's `lib64/` decides how well it works:
+The game's Vulkan renderer runs through MoltenVK (Vulkan → Metal), not the bottle's D3DMetal setting. The patched app bundles the patched MoltenVK, so **Vulkan works out of the box** — the version notes below explain what older MoltenVK builds got wrong:
 
-- **CrossOver's bundled MoltenVK (1.2.10)** renders, but once the game recreates its swapchain (changing FPS or V-Sync does) the window stays black and the game has to be force-closed ([KhronosGroup/MoltenVK#2722](https://github.com/KhronosGroup/MoltenVK/pull/2722)). `swap-into-crossover.sh` downloads 1.4.1 by default, which predates the fix.
+- **CrossOver's stock MoltenVK (1.2.10)** also renders, but once the game recreates its swapchain (changing FPS or V-Sync does) the window stays black and the game has to be force-closed ([KhronosGroup/MoltenVK#2722](https://github.com/KhronosGroup/MoltenVK/pull/2722)). `swap-into-crossover.sh` downloads 1.4.2 by default (set `MVK_VER` to pin another release), which includes the fix, and the Patcher bundles the patched 1.4.2.
 - **Stock MoltenVK 1.4.2** fixes the black screen. mary-ext reported three problems that remain ([#22](https://github.com/stoicswe/Endfield_FineWine/issues/22)): teleporting to Snowy Forest can hang the GPU (macOS then kills WindowServer, which logs you out), TAAU/FSR3 artifacts near Recycling Stations, and stutter until Metal's pipeline cache is built.
 - **This repo's patched MoltenVK** (`patches/moltenvk`, ported from [mary-ext's fork](https://github.com/mary-ext/crossover-wine-endfield)) is meant to fix those three. The FineWine Patcher ships it from 1.1.0 on (nightlies included), so you don't need to build it. To build it yourself, use `scripts/build-moltenvk.sh` (needs full Xcode), then `scripts/package.sh` and `scripts/apply-modules.sh`.
 - **After swapping MoltenVK (or changing `MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS`), delete the game's pipeline cache** — `…/LocalLow/Gryphline/Endfield/vulkan_pso_cache.bin` was compiled by the previous module build and can be reused after the change, drawing some meshes with wrong shader/descriptor data (e.g. bushes/grass as odd, stretched polygons). It is not cleared automatically; delete it manually and let the game rebuild it. See [troubleshooting.md → In-game graphics](troubleshooting.md#in-game-graphics).
 
 Launch it with `GFXARGS=-force-vulkan scripts/launch-endfield.sh`.
 
-On a 16 GB M4 (CrossOver 26.2, stock MoltenVK 1.4.2): the first Vulkan launch compiled shaders for ~10 minutes (~3–4 the next time), frame pacing felt smoother than DX11, and it used about half the GPU memory. There's no DLSS under Vulkan; the game offers TAAU and AMD FSR3 instead (FSR3 *Native AA* looked best, and FSR Frame Generation made it slower). Numbers and settings: [14-performance-on-16gb-macs.md](14-performance-on-16gb-macs.md#vulkan-renderer-experimental).
+On a 16 GB M4 (CrossOver 26.2, stock MoltenVK 1.4.2): the first Vulkan launch compiled shaders for ~10 minutes (~3–4 the next time), frame pacing felt smoother than DX11, and it used about half the GPU memory. There's no DLSS under Vulkan; the game offers TAAU and AMD FSR3 instead (FSR3 *Native AA* looked best, and FSR Frame Generation made it slower). Numbers and settings: [14-performance-on-16gb-macs.md](14-performance-on-16gb-macs.md#vulkan-renderer).
 
 Upstream MoltenVK doesn't have two extensions CodeWeavers added to CrossOver's copy (`VK_EXT_transform_feedback`, `VK_NV_glsl_shader`). Endfield doesn't need them, but a DXVK game in the same CrossOver copy might.
 
@@ -36,11 +36,11 @@ Upstream MoltenVK doesn't have two extensions CodeWeavers added to CrossOver's c
 
 CrossOver → select the **Arknights Endfield** bottle → **Advanced Settings → Graphics**:
 
-- **D3DMetal** *(recommended)* — DirectX 11/12 → Metal. With GPTK4, DX12 → Metal 4 is fastest, and it's the only path with **DLSS-via-MetalFX** frame generation. Force the game into **DirectX 12** mode for the full benefit.
-- **DXMT** — good for DirectX 11 titles; also supports the DLSS/MetalFX toggle.
+- **D3DMetal** — DirectX 11/12 → Metal, with DLSS upscaling served by MetalFX. GPTK updates replace this backend's D3DMetal payload.
+- **DXMT** — DirectX 11 → Metal; supports DLSS upscaling through MetalFX when its NGX resource-parameter fix is present (see below).
 - **DXVK** — DirectX 10/11 → Vulkan → MoltenVK (fallback; extra hop, no DLSS).
 
-Also enable **DLSS (MetalFX)** and **MSync** — or let [`scripts/create-bottle.sh`](../scripts/create-bottle.sh) set the backend and both toggles (the `cxbottle.conf` keys are listed in [06-graphics-and-gptk.md → Selecting a backend](06-graphics-and-gptk.md#selecting-a-backend-in-crossover-26)). AVX2 (from Rosetta 2 on macOS 15+, not from GPTK) needs no setting: CrossOver's `wine` wrapper already exports `ROSETTA_ADVERTISE_AVX=1`.
+Enable **MSync**. For DLSS upscaling, enable **DLSS (MetalFX)** with D3DMetal or a DXMT build containing the [NGX resource-parameter fix](technical.md#dlss-under-dxmt-stock-and-patched-builds). With CrossOver 26.3's stock DXMT 0.80, use **TAAU** or **AMD FSR3** until that fix is included; FineWine 1.2.3 preserves the source app's DXMT modules. [`scripts/create-bottle.sh`](../scripts/create-bottle.sh) can set the backend and backend-specific toggle (the `cxbottle.conf` keys are listed in [06-graphics-and-gptk.md → Selecting a backend](06-graphics-and-gptk.md#selecting-a-backend-in-crossover-26)). AVX2 (from Rosetta 2 on macOS 15+, not from GPTK) needs no setting: CrossOver's `wine` wrapper already exports `ROSETTA_ADVERTISE_AVX=1`.
 
 ## Installing GPTK4 (optional)
 

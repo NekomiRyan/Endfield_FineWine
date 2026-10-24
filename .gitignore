@@ -3,8 +3,12 @@
 
 # Build artifacts
 build/
+dist/
 *.log
 *.tmp
+
+# Temp Dirs
+.diagnostics/
 
 # SwiftPM / Xcode
 patcher-app/.build/

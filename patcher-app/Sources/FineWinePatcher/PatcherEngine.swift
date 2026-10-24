@@ -446,6 +446,7 @@ final class PatcherEngine: ObservableObject {
 
     private static func stepLabels(includingGPTK: Bool) -> [String] {
         var labels = [
+            "Checking / installing Rosetta 2",
             "Copying CrossOver",
             "Installing the patched modules",
         ]
@@ -498,6 +499,10 @@ final class PatcherEngine: ObservableObject {
             }
             do {
                 var index = 0
+
+                await begin(index)
+                try RosettaSupport.ensureInstalled()
+                await finish(index); index += 1
 
                 await begin(index)
                 let app = try Self.copyBundle(from: source, to: destination)

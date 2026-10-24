@@ -136,7 +136,7 @@ $ICON_PLIST
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>MIT — © 2026 Endfield_FineWine contributors. Bundled Wine modules: LGPL-2.1-or-later.</string>
+<string>GPL-3.0-or-later — © 2026 Endfield_FineWine contributors. Bundled Wine modules: LGPL-2.1-or-later.</string>
 </dict>
 </plist>
 PLIST

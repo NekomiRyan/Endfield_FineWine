@@ -8,6 +8,8 @@
 
 Run **Arknights: Endfield** on an Apple Silicon Mac through a **custom-patched CrossOver Wine**. This project aims to provide the necessary compatibility edits needed to bring Arknights: Endfiled to a near-native macOS gaming experience. Patches by the `DW-Proton` project have been used as the basis for getting the game's VMProtect/TenProtect armor, the **ACE anti-cheat**, and rendering commands to run properly on macOS. This project does **NOT** bypass anticheat, but rather adjusts the crossover env to allow for Endfield's anticheat services to run uninterupted. Additiionally, we aim optimize the translated calls from DX11/Vulkan to Apple's **D3DMetal**.
 
+Project website: **[endfield-finewine.web.app](https://endfield-finewine.web.app)**
+
 CodeWeavers rated Endfield *"Installs, Will Not Run"* and the community consensus was that CrossOver + Endfield was impossible; this repository is the first known working setup, plus the full engineering write-up of how it was found.
 
 > **What this is:** a set of **patches** to CrossOver's (LGPL) Wine, plus **scripts** and **documentation** to build and deploy them. It does **not** contain or redistribute CrossOver, Wine, Apple's Game Porting Toolkit, or the game — you bring your own licensed copies of each.
@@ -106,8 +108,8 @@ Curious about how this works under the hood without cluttering up the setup guid
 
 ## License
 
-- **Scripts (`scripts/`) and documentation (`docs/`, README):** [MIT](LICENSE).
-- **Patches (`patches/`):** these are modifications to **Wine**, so they are **LGPL-2.1-or-later** (Wine's license) — MIT cannot relicense them. The `stage2-dwproton/` patches originate from the **dw-proton (Dawn Winery)** project and retain their upstream authors' rights. See [patches/README.md](patches/README.md).
+- **Original project tooling, scripts, documentation, and patcher UI:** [GNU GPL-3.0-or-later](LICENSE).
+- **Patches (`patches/`):** these are modifications to **Wine**, so they remain **LGPL-2.1-or-later** (Wine's license) and cannot be relicensed by this project. The `stage2-dwproton/` patches originate from the **dw-proton (Dawn Winery)** project and retain their upstream authors' rights. See [patches/README.md](patches/README.md).
 - This repo's **source** does not include Wine, CrossOver, Apple's GPTK, or the game. Built artifacts (e.g. `FineWine Patcher.app`) bundle the patched Wine modules (**LGPL-2.1-or-later**) and MoltenVK (**Apache-2.0**) — see [patcher-app/README.md](patcher-app/README.md) for the corresponding-source offer. Get CrossOver, GPTK and the game from their own sources, under their own licenses.
 
 ## Credits

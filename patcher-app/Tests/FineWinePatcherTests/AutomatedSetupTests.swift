@@ -3,6 +3,35 @@ import XCTest
 
 final class AutomatedSetupTests: XCTestCase {
 
+    func testRosettaSupportInstallsAndVerifiesWhenProbeFails() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fw-rosetta-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let marker = dir.appendingPathComponent("installed")
+        let probe = dir.appendingPathComponent("probe.sh")
+        let installer = dir.appendingPathComponent("installer.sh")
+        try """
+        #!/bin/sh
+        if [ -f "\(marker.path)" ]; then exit 0; else exit 1; fi
+        """.write(to: probe, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        touch "\(marker.path)"
+        exit 0
+        """.write(to: installer, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: probe.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installer.path)
+
+        try RosettaSupport.ensureInstalled(
+            archPath: probe.path,
+            softwareUpdatePath: installer.path,
+            appleSilicon: true
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+    }
+
     // MARK: - Bottle name validation
 
     func testBottleNameRejectsEmptyAndReservedNames() {

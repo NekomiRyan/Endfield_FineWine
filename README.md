@@ -106,8 +106,8 @@ Curious about how this works under the hood without cluttering up the setup guid
 
 ## License
 
-- **Scripts (`scripts/`) and documentation (`docs/`, README):** [MIT](LICENSE).
-- **Patches (`patches/`):** these are modifications to **Wine**, so they are **LGPL-2.1-or-later** (Wine's license) — MIT cannot relicense them. The `stage2-dwproton/` patches originate from the **dw-proton (Dawn Winery)** project and retain their upstream authors' rights. See [patches/README.md](patches/README.md).
+- **Original project tooling, scripts, documentation, and patcher UI:** [GNU GPL-3.0-or-later](LICENSE).
+- **Patches (`patches/`):** these are modifications to **Wine**, so they remain **LGPL-2.1-or-later** (Wine's license) and cannot be relicensed by this project. The `stage2-dwproton/` patches originate from the **dw-proton (Dawn Winery)** project and retain their upstream authors' rights. See [patches/README.md](patches/README.md).
 - This repo's **source** does not include Wine, CrossOver, Apple's GPTK, or the game. Built artifacts (e.g. `FineWine Patcher.app`) bundle the patched Wine modules (**LGPL-2.1-or-later**) and MoltenVK (**Apache-2.0**) — see [patcher-app/README.md](patcher-app/README.md) for the corresponding-source offer. Get CrossOver, GPTK and the game from their own sources, under their own licenses.
 
 ## Credits

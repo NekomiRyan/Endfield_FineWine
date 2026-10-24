@@ -248,7 +248,7 @@ third-party image libraries), centering the artwork on a transparent square with
 
 ## Licensing (important if you distribute the built app)
 
-- **The app itself** (Swift sources, UI, this directory): [MIT](../LICENSE).
+- **The app itself** (Swift sources, UI, this directory): [GNU GPL-3.0-or-later](../LICENSE).
 - **The bundled Wine modules** (`ntdll.so`, `kernel32.dll`, `ntoskrnl.exe`, `lsass.exe`, `wineboot.exe`, `rundll32.exe`, `wineserver`): **LGPL-2.1-or-later** —
   they are Wine, built from CodeWeavers' freely published
   [CrossOver 26.3 Wine source](https://www.codeweavers.com/crossover/source) with this repo's

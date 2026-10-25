@@ -25,10 +25,16 @@ struct FineWinePatcherApp: App {
                 .environmentObject(engine)
         }
         .windowResizability(.contentSize)
+
+        Window("Steam / NotProton", id: "notproton") {
+            NotProtonView()
+                .environmentObject(engine)
+        }
+        .windowResizability(.contentSize)
     }
 }
 
-/// The app's menu bar. The Mod Framework submenu item opens the mod-chain window.
+/// The app's menu bar. Tools menu items open mod-chain and Steam Play / NotProton windows.
 struct PatcherCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
@@ -37,6 +43,9 @@ struct PatcherCommands: Commands {
         CommandMenu("Tools") {
             Button("Mod Framework (EFMI)…") {
                 openWindow(id: "mod-framework")
+            }
+            Button("Steam / NotProton…") {
+                openWindow(id: "notproton")
             }
         }
     }

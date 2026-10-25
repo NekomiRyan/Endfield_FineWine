@@ -12,6 +12,7 @@ import Foundation
 enum MetalHUD {
     static let envKey = "MTL_HUD_ENABLED"
     static let enabledValue = "1"
+    static let fpsKey = "D3DM_MAX_FPS"
     static let stateFileName = "cxbottle.conf.finewine-metal-hud"
 
     /// Windows image names whose Metal clients should inherit the HUD.
@@ -59,6 +60,7 @@ enum MetalHUD {
         let conf: URL
         let currentlyEnabled: Bool
         let currentValue: String?
+        let maxFPS: String?
         let related: [RelatedApp]
         let macLaunchers: [MacLauncher]
     }
@@ -79,11 +81,13 @@ enum MetalHUD {
         let conf = bottle.appendingPathComponent("cxbottle.conf")
         guard let text = try? String(contentsOf: conf, encoding: .utf8) else { return nil }
         let value = BottleConf.environmentValue(in: text, key: envKey)
+        let fps = BottleConf.environmentValue(in: text, key: fpsKey)
         return Plan(
             bottle: bottle,
             conf: conf,
             currentlyEnabled: value == enabledValue,
             currentValue: value,
+            maxFPS: fps,
             related: findRelatedApps(bottle: bottle),
             macLaunchers: findMacLaunchers(bottle: bottle,
                                            extraRoots: extraLauncherRoots,
@@ -274,6 +278,44 @@ enum MetalHUD {
 
     static func isEnabled(in confText: String) -> Bool {
         BottleConf.environmentValue(in: confText, key: envKey) == enabledValue
+    }
+
+    static func setFPSCap(bottle: URL, fps: String?) throws {
+        let conf = bottle.appendingPathComponent("cxbottle.conf")
+        guard let original = try? String(contentsOf: conf, encoding: .utf8) else {
+            throw PatchError("Bottle config not found at \(conf.path)")
+        }
+        let updated = BottleConf.setEnvironmentValue(original, key: fpsKey, value: fps)
+        if updated != original {
+            try backupConfIfNeeded(conf)
+            try updated.write(to: conf, atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// Stops any running wineserver processes for the given bottle prefix.
+    static func stopBottle(bottle: URL, app: URL? = nil) throws {
+        let candidates = [
+            app?.appendingPathComponent("Contents/SharedSupport/CrossOver"),
+            URL(fileURLWithPath: "/Applications/CrossOver_Endfield_Patch.app/Contents/SharedSupport/CrossOver"),
+            URL(fileURLWithPath: "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver"),
+        ].compactMap { $0 }
+
+        guard let cxr = candidates.first(where: { FileManager.default.fileExists(atPath: $0.appendingPathComponent("bin/wineserver").path) }) else {
+            throw PatchError("Could not locate wineserver in CrossOver bundle")
+        }
+
+        let wineserver = cxr.appendingPathComponent("bin/wineserver")
+        let proc = Process()
+        proc.executableURL = wineserver
+        proc.arguments = ["-k"]
+        var env = ProcessInfo.processInfo.environment
+        env["WINEPREFIX"] = bottle.path
+        env["CX_ROOT"] = cxr.path
+        proc.environment = env
+        proc.standardOutput = Pipe()
+        proc.standardError = Pipe()
+        try proc.run()
+        proc.waitUntilExit()
     }
 
     // MARK: - LSEnvironment

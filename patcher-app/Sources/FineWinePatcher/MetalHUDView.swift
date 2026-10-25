@@ -15,6 +15,7 @@ struct MetalHUDView: View {
     @State private var manualBottles: [BottleInfo] = []
     @State private var plan: MetalHUD.Plan?
     @State private var setupError: String?
+    @State private var stoppedNotice = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -81,6 +82,30 @@ struct MetalHUDView: View {
                         .disabled(engine.hudIsRunning)
                 }
 
+                if let plan {
+                    HStack {
+                        Text("D3DMetal FPS Cap:")
+                            .font(.caption)
+                        Picker("FPS Cap", selection: Binding(
+                            get: { plan.maxFPS ?? "uncapped" },
+                            set: { newFPS in
+                                if let bottle = selected {
+                                    engine.setMetalHUDFPS(bottle: bottle.url, fps: newFPS == "uncapped" ? nil : newFPS)
+                                    refresh()
+                                }
+                            }
+                        )) {
+                            Text("Uncapped").tag("uncapped")
+                            Text("60 FPS (Recommended)").tag("60")
+                            Text("120 FPS").tag("120")
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .disabled(engine.hudIsRunning)
+                        Spacer()
+                    }
+                }
+
                 if let error = setupError {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
@@ -108,6 +133,21 @@ struct MetalHUDView: View {
                     .disabled(plan == nil || engine.hudIsRunning || engine.isRunning || plan?.currentlyEnabled != true)
 
                     Spacer()
+
+                    Button("Stop Bottle") {
+                        if let bottle = selected {
+                            engine.stopBottle(bottle: bottle.url)
+                            stoppedNotice = true
+                        }
+                    }
+                    .disabled(selected == nil || engine.hudIsRunning)
+                    .help("Kills running Wine/wineserver processes in this bottle so environment changes take effect immediately.")
+                }
+
+                if stoppedNotice {
+                    Label("Stopped Wine processes in bottle.", systemImage: "checkmark.circle")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(4)

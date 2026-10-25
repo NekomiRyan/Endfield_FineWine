@@ -502,6 +502,23 @@ final class PatcherEngine: ObservableObject {
         }
     }
 
+    func setMetalHUDFPS(bottle: URL, fps: String?) {
+        do {
+            try MetalHUD.setFPSCap(bottle: bottle, fps: fps)
+        } catch {
+            self.hudError = error.localizedDescription
+        }
+    }
+
+    func stopBottle(bottle: URL) {
+        do {
+            try MetalHUD.stopBottle(bottle: bottle, app: patchedApp)
+        } catch {
+            self.hudError = error.localizedDescription
+        }
+    }
+
+
     nonisolated static let originalBundleIdentifier = "com.codeweavers.CrossOver"
     nonisolated static var patchedBundleIdentifier: String {
         if let env = ProcessInfo.processInfo.environment["BUNDLE_ID"], env.count == originalBundleIdentifier.count {

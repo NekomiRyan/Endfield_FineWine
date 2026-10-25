@@ -44,6 +44,7 @@ struct BottleSettings: Equatable {
     var backend: BottleBackend = .d3dmetal
     var msync = true
     var upscaling = true
+    var metalHUD = false
     /// CrossOver bottle template; only Windows 11 64-bit is supported by this project.
     var template = "win11_64"
 
@@ -62,6 +63,9 @@ struct BottleSettings: Equatable {
         pairs.append(("WINEMSYNC", msyncOverride ? "1" : "0"))
         if upscaling, let key = backend.upscalerKey {
             pairs.append((key, "1"))
+        }
+        if metalHUD {
+            pairs.append(("MTL_HUD_ENABLED", "1"))
         }
         return Self.withoutUnsupportedMetal4Properties(pairs)
     }

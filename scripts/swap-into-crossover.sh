@@ -62,6 +62,11 @@ MOD_IMPORTER="${MOD_IMPORTER:-}"
 MOD_CHAIN_MODE="${MOD_CHAIN_MODE:-path}"   # path | copy
 MOD_BOTTLES_ROOT="${MOD_BOTTLES_ROOT:-$HOME/Library/Application Support/CrossOver/Bottles}"
 
+# --- optional Metal HUD bottle step -------------------------------------------
+METAL_HUD_APPLY="${METAL_HUD_APPLY:-${METAL_HUD:-0}}"
+METAL_HUD_REVERT="${METAL_HUD_REVERT:-0}"
+METAL_HUD_FPS="${METAL_HUD_FPS:-${MAX_FPS:-}}"
+
 # ---------------------------------------------------------------- CLI arguments
 # Every flag overrides its environment-variable counterpart; --help has the full list.
 usage(){
@@ -81,15 +86,20 @@ mod (EFMI) chain — see docs/mod-injection/:
   --mod-chain             point EFMI's d3dx.ini [System] proxy_d3d11 at the backend d3d11.dll
                           inside the patched app (env MOD_CHAIN=1)
   --mod-chain-revert      undo a previously applied chain (env MOD_CHAIN_REVERT=1)
-  --bottle NAME           bottle to chain into (env MOD_BOTTLE; default "Arknights Endfield")
+  --bottle NAME           bottle to chain/configure (env MOD_BOTTLE; default "Arknights Endfield")
   --app PATH              patched app to chain against (env MOD_APP; default DEST_APP)
   --importer PATH         explicit EFMI folder (must contain d3dx.ini) instead of auto-discovery
                           (env MOD_IMPORTER)
   --chain-mode path|copy  "path": Z:\\ path into the app bundle (default). "copy": stage the
                           backend dll next to EFMI's as d3d11_cx.dll (env MOD_CHAIN_MODE)
   --bottles-root PATH     bottles directory (env MOD_BOTTLES_ROOT) — for scratch-bottle testing
-  --skip-app-patch        run only the mod-chain step against an existing patched app
-                          (env SKIP_APP_PATCH=1); requires --mod-chain or --mod-chain-revert
+  --skip-app-patch        run only bottle steps (mod-chain, metal-hud) against an existing bottle
+                          (env SKIP_APP_PATCH=1)
+
+metal HUD — Apple Metal Performance overlay (FPS, memory, frame times):
+  --metal-hud             enable Apple's Metal HUD (MTL_HUD_ENABLED=1) in the bottle (env METAL_HUD=1)
+  --metal-hud-revert      disable Apple's Metal HUD from the bottle (env METAL_HUD_REVERT=1)
+  --max-fps FPS           set D3DM_MAX_FPS frame cap (e.g. 60 or 120; env MAX_FPS)
 
 misc:
   -h, --help              this help
@@ -110,6 +120,10 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --mod-chain)           MOD_CHAIN=1; shift ;;
     --mod-chain-revert)    MOD_CHAIN_REVERT=1; shift ;;
+    --metal-hud)           METAL_HUD_APPLY=1; shift ;;
+    --metal-hud-revert)    METAL_HUD_REVERT=1; shift ;;
+    --max-fps)             arg_value "$1" "${2:-}"; METAL_HUD_FPS="$ARG_VALUE"; shift 2 ;;
+    --max-fps=*)           METAL_HUD_FPS="${1#*=}"; shift ;;
     --skip-app-patch)      SKIP_APP_PATCH=1; shift ;;
     --skip-gptk)           SKIP_GPTK=1; shift ;;
     --skip-mvk)            SKIP_MVK=1; shift ;;
@@ -145,8 +159,9 @@ esac
 # ---------------------------------------------------------------- preflight
 DO_APP_PATCH=1
 [ "${SKIP_APP_PATCH:-0}" = "1" ] && DO_APP_PATCH=0
-if [ "$DO_APP_PATCH" = "0" ] && [ "$MOD_CHAIN" != "1" ] && [ "$MOD_CHAIN_REVERT" != "1" ]; then
-  echo "ERROR: --skip-app-patch needs --mod-chain or --mod-chain-revert (nothing else to do)" >&2
+if [ "$DO_APP_PATCH" = "0" ] && [ "$MOD_CHAIN" != "1" ] && [ "$MOD_CHAIN_REVERT" != "1" ] \
+   && [ "$METAL_HUD_APPLY" != "1" ] && [ "$METAL_HUD_REVERT" != "1" ] && [ -z "$METAL_HUD_FPS" ]; then
+  echo "ERROR: --skip-app-patch needs --mod-chain, --mod-chain-revert, --metal-hud, or --metal-hud-revert (nothing else to do)" >&2
   exit 1
 fi
 if [ "$DO_APP_PATCH" = "1" ]; then
@@ -159,9 +174,11 @@ if [ "$DO_APP_PATCH" = "1" ]; then
   fi
   [ -n "$MOD_APP" ] || MOD_APP="$DEST_APP"
 else
-  [ -n "$MOD_APP" ] || MOD_APP="$DEST_APP"
-  [ -d "$MOD_APP/Contents/SharedSupport/CrossOver" ] \
-    || { echo "ERROR: $MOD_APP is not a (patched) CrossOver app — pass --app <path to the patched app>"; exit 1; }
+  if [ "$MOD_CHAIN" = "1" ] || [ "$MOD_CHAIN_REVERT" = "1" ]; then
+    [ -n "$MOD_APP" ] || MOD_APP="$DEST_APP"
+    [ -d "$MOD_APP/Contents/SharedSupport/CrossOver" ] \
+      || { echo "ERROR: $MOD_APP is not a (patched) CrossOver app — pass --app <path to the patched app>"; exit 1; }
+  fi
 fi
 
 # ---------------------------------------------------------------- 1. copy app
@@ -609,10 +626,92 @@ mod_chain_revert(){
   rm -f "$importer/d3d11_cx.dll" "$importer/d3dx.ini.finewine-chain"
   ok "reverted (pre-chain backup kept at $ini.cxorig)"
 }
+metal_hud_apply(){
+  local BP="$MOD_BOTTLES_ROOT/$MOD_BOTTLE"
+  BP="${BP%\/}"
+  [ -f "$BP/cxbottle.conf" ] || { echo "ERROR: bottle '$MOD_BOTTLE' not found at $BP"; exit 1; }
+  log "Metal HUD: bottle '$MOD_BOTTLE'"
+  python3 - "$BP/cxbottle.conf" "${METAL_HUD_APPLY:-0}" "${METAL_HUD_FPS:-}" <<'PY'
+import sys
+path, hud_flag, fps_val = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(path, encoding="utf-8", newline="").read()
+lines = text.split("\n")
+def core(s): return s[:-1] if s.endswith("\r") else s
+def eol(s): return "\r" if s.endswith("\r") else ""
+
+def set_key(lines, key, val):
+    out, in_env, wrote, found_sec = [], False, False, False
+    token = f'"{key}"'
+    for l in lines:
+        t = core(l).strip()
+        if t == "[EnvironmentVariables]":
+            in_env = True; found_sec = True; out.append(l); continue
+        if t.startswith("[") and t.endswith("]"):
+            if in_env and not wrote and val is not None:
+                out.append(f'"{key}" = "{val}"' + eol(l))
+                wrote = True
+            in_env = False; out.append(l); continue
+        if in_env and (t.startswith(token) and not t.startswith(";;") and not t.startswith("#") and not t.startswith(";")):
+            if val is not None and not wrote:
+                out.append(f'"{key}" = "{val}"' + eol(l))
+                wrote = True
+            continue
+        out.append(l)
+    if in_env and not wrote and val is not None:
+        out.append(f'"{key}" = "{val}"')
+        wrote = True
+    if not found_sec and val is not None:
+        out.extend(["", "[EnvironmentVariables]", f'"{key}" = "{val}"'])
+    return out
+
+res = lines
+if hud_flag == "1":
+    res = set_key(res, "MTL_HUD_ENABLED", "1")
+if fps_val:
+    res = set_key(res, "D3DM_MAX_FPS", fps_val)
+open(path, "w", encoding="utf-8", newline="").write("\n".join(res))
+PY
+  if [ "$METAL_HUD_APPLY" = "1" ]; then
+    ok "enabled MTL_HUD_ENABLED=1 in $BP/cxbottle.conf"
+  fi
+  if [ -n "$METAL_HUD_FPS" ]; then
+    ok "set D3DM_MAX_FPS=$METAL_HUD_FPS in $BP/cxbottle.conf"
+  fi
+}
+metal_hud_revert(){
+  local BP="$MOD_BOTTLES_ROOT/$MOD_BOTTLE"
+  BP="${BP%\/}"
+  [ -f "$BP/cxbottle.conf" ] || { echo "ERROR: bottle '$MOD_BOTTLE' not found at $BP"; exit 1; }
+  log "Metal HUD revert: bottle '$MOD_BOTTLE'"
+  python3 - "$BP/cxbottle.conf" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8", newline="").read()
+lines = text.split("\n")
+def core(s): return s[:-1] if s.endswith("\r") else s
+out, in_env = [], False
+for l in lines:
+    t = core(l).strip()
+    if t == "[EnvironmentVariables]":
+        in_env = True; out.append(l); continue
+    if t.startswith("[") and t.endswith("]"):
+        in_env = False; out.append(l); continue
+    if in_env and (t.startswith('"MTL_HUD_ENABLED"') and not t.startswith(";;")):
+        continue
+    out.append(l)
+open(path, "w", encoding="utf-8", newline="").write("\n".join(out))
+PY
+  ok "removed MTL_HUD_ENABLED from $BP/cxbottle.conf"
+}
 if [ "${MOD_CHAIN_REVERT:-0}" = "1" ]; then
   mod_chain_revert
 elif [ "${MOD_CHAIN:-0}" = "1" ]; then
   mod_chain_apply
+fi
+if [ "${METAL_HUD_REVERT:-0}" = "1" ]; then
+  metal_hud_revert
+elif [ "${METAL_HUD_APPLY:-0}" = "1" ] || [ -n "${METAL_HUD_FPS:-}" ]; then
+  metal_hud_apply
 fi
 
 # ---------------------------------------------------------------- 8. next steps

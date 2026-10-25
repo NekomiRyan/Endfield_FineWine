@@ -83,6 +83,17 @@ final class MetalHUDTests: XCTestCase {
         XCTAssertEqual(BottleConf.environmentValue(in: updated, key: "MTL_HUD_ENABLED"), "1")
     }
 
+    func testSetFPSCapAndPlanReadsIt() throws {
+        let bottle = try makeBottle()
+        try MetalHUD.setFPSCap(bottle: bottle, fps: "60")
+        let plan = MetalHUD.plan(for: bottle, includeDefaultLauncherRoots: false)
+        XCTAssertEqual(plan?.maxFPS, "60")
+
+        try MetalHUD.setFPSCap(bottle: bottle, fps: nil)
+        let unplan = MetalHUD.plan(for: bottle, includeDefaultLauncherRoots: false)
+        XCTAssertNil(unplan?.maxFPS)
+    }
+
     // MARK: - related Windows apps
 
     func testFindsEndfieldGamesAndGryphlinkButIgnoresUnrelatedLauncher() throws {

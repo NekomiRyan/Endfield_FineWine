@@ -149,17 +149,23 @@ HTTPS request.
 Download totals remain release-host metrics; actual patch usage is measured only from reports the
 user explicitly chooses to send.
 
-## Metal HUD — optional Tools phase
+## Tools menu
+
+The patcher includes optional bottle-side utilities accessible from the menu bar under **Tools**:
+
+### Metal HUD & Performance Overlay
 
 **Tools → Metal HUD…** writes Apple's `MTL_HUD_ENABLED=1` into the selected bottle's
 `cxbottle.conf` `[EnvironmentVariables]`. CrossOver injects those Unix variables into every
 Wine process in the bottle, so the overlay follows **Endfield.exe**, Gryphline's **Games.exe** /
 **Launcher.exe**, XXMI, and anything else in that bottle that talks to Metal (D3DMetal, DXMT, or
 MoltenVK). Matching macOS launcher stubs (name or Info.plist pointing at those EXEs) get the same
-key in `LSEnvironment`. Off by default; **Disable HUD** removes it. Restart the bottle after
-toggling. The same opt-in exists on the shell side: `METAL_HUD=1 ./scripts/create-bottle.sh`.
+key in `LSEnvironment`. Off by default; **Disable HUD** removes it. The window also supports setting
+a D3DMetal frame rate limit (`D3DM_MAX_FPS`) and provides a **Stop Bottle** button to immediately
+restart bottle processes. The same opt-ins exist on the shell side: `METAL_HUD=1 MAX_FPS=60 ./scripts/create-bottle.sh`,
+or `scripts/swap-into-crossover.sh --metal-hud --skip-app-patch`.
 
-## Mod framework (EFMI) — optional second phase
+### Mod framework (EFMI)
 
 A separate **Mod Framework** window — menu bar **Tools → Mod Framework (EFMI)…** — hosts an
 independent **bottle-side** phase that makes the **XXMI Launcher / EFMI** mod stack work: it

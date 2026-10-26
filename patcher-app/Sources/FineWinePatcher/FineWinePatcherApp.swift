@@ -28,6 +28,9 @@ struct FineWinePatcherApp: App {
 
         Window("Steam / NotProton", id: "notproton") {
             NotProtonView()
+        }
+        .windowResizability(.contentSize)
+        
         Window("Metal HUD", id: "metal-hud") {
             MetalHUDView()
                 .environmentObject(engine)
@@ -49,6 +52,7 @@ struct PatcherCommands: Commands {
             }
             Button("Steam / NotProton…") {
                 openWindow(id: "notproton")
+            }
             Button("Metal HUD…") {
                 openWindow(id: "metal-hud")
             }

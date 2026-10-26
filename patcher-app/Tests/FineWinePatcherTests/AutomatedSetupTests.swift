@@ -95,12 +95,21 @@ final class AutomatedSetupTests: XCTestCase {
         XCTAssertEqual(settings.backend, .d3dmetal)
         XCTAssertTrue(settings.msync)
         XCTAssertTrue(settings.upscaling)
+        XCTAssertFalse(settings.metalHUD)
 
         let env = Dictionary(uniqueKeysWithValues: settings.environment.map { ($0.key, $0.value) })
         XCTAssertEqual(env["CX_GRAPHICS_BACKEND"], "d3dmetal")
         XCTAssertEqual(env["WINEMSYNC"], "1")
         XCTAssertEqual(env["D3DM_ENABLE_METALFX"], "1")
         XCTAssertNil(env["DXMT_ENABLE_NVEXT"])
+        XCTAssertNil(env["MTL_HUD_ENABLED"])
+    }
+
+    func testMetalHUDCanBeEnabled() {
+        var settings = BottleSettings()
+        settings.metalHUD = true
+        let env = Dictionary(uniqueKeysWithValues: settings.environment.map { ($0.key, $0.value) })
+        XCTAssertEqual(env["MTL_HUD_ENABLED"], "1")
     }
 
     func testAutoBackendOmitsTheBackendKey() {

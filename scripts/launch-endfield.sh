@@ -20,6 +20,8 @@
 #   launcher's DirectX-11 setting does NOT apply; without this flag Unity defaults to
 #   Vulkan (see docs/graphics-performance.md). Set GFXARGS="" to
 #   disable, or GFXARGS=-force-vulkan to force Vulkan.)
+#   METAL_HUD (default 0; set 1 to enable Apple's Metal Performance HUD for this launch)
+#   MAX_FPS (optional; e.g. 60 or 120 to set D3DM_MAX_FPS for this launch)
 #
 # NOTE: the game still updates itself via the launcher. If a game patch ships, run the launcher
 # once when it's working again to update; this script is for launching an already-updated install.
@@ -69,6 +71,14 @@ GFXARGS="${GFXARGS--force-d3d11}"
 echo "App:    $APP"
 echo "Bottle: $BOTTLE"
 echo "Game:   $TARGET"
+if [ "${METAL_HUD:-0}" = "1" ]; then
+  export MTL_HUD_ENABLED=1
+  echo "Metal HUD: enabled (MTL_HUD_ENABLED=1)"
+fi
+if [ -n "${MAX_FPS:-}" ]; then
+  export D3DM_MAX_FPS="$MAX_FPS"
+  echo "FPS Cap:   $MAX_FPS (D3DM_MAX_FPS=$MAX_FPS)"
+fi
 
 # ---- clean any stale Wine/ACE state so the anti-cheat starts fresh ----------
 WINEPREFIX="$BP" CX_ROOT="$CXR" "$CXBIN/wineserver" -k >/dev/null 2>&1 || true

@@ -149,7 +149,23 @@ HTTPS request.
 Download totals remain release-host metrics; actual patch usage is measured only from reports the
 user explicitly chooses to send.
 
-## Mod framework (EFMI) — optional second phase
+## Tools menu
+
+The patcher includes optional bottle-side utilities accessible from the menu bar under **Tools**:
+
+### Metal HUD & Performance Overlay
+
+**Tools → Metal HUD…** writes Apple's `MTL_HUD_ENABLED=1` into the selected bottle's
+`cxbottle.conf` `[EnvironmentVariables]`. CrossOver injects those Unix variables into every
+Wine process in the bottle, so the overlay follows **Endfield.exe**, Gryphline's **Games.exe** /
+**Launcher.exe**, XXMI, and anything else in that bottle that talks to Metal (D3DMetal, DXMT, or
+MoltenVK). Matching macOS launcher stubs (name or Info.plist pointing at those EXEs) get the same
+key in `LSEnvironment`. Off by default; **Disable HUD** removes it. The window also supports setting
+a D3DMetal frame rate limit (`D3DM_MAX_FPS`) and provides a **Stop Bottle** button to immediately
+restart bottle processes. The same opt-ins exist on the shell side: `METAL_HUD=1 MAX_FPS=60 ./scripts/create-bottle.sh`,
+or `scripts/swap-into-crossover.sh --metal-hud --skip-app-patch`.
+
+### Mod framework (EFMI)
 
 A separate **Mod Framework** window — menu bar **Tools → Mod Framework (EFMI)…** — hosts an
 independent **bottle-side** phase that makes the **XXMI Launcher / EFMI** mod stack work: it
@@ -290,8 +306,10 @@ game. It requires the user's own licensed CrossOver install as input, and links 
 ```
 Package.swift                     SwiftPM manifest (macOS 13+)
 Sources/FineWinePatcher/
-  FineWinePatcherApp.swift        app entry: main window + Tools menu + the Mod Framework window
+  FineWinePatcherApp.swift        app entry: main window + Tools menu + Mod Framework / Metal HUD windows
   ContentView.swift               the main window UI (the patch flow only)
+  MetalHUDView.swift              the Metal HUD window: per-bottle enable/disable of Apple's overlay
+  MetalHUD.swift                  bottle `MTL_HUD_ENABLED`, related Endfield/Games/GRYPHLINK discovery
   ModChainView.swift              the Mod Framework window: bottle + EFMI discovery, apply/revert chain
   PatchProgressViews.swift        the shared step-checklist and error views
   PatchTelemetryPromptView.swift  the post-patch send/skip dialog with the exact payload preview
@@ -303,6 +321,7 @@ Sources/FineWinePatcher/
   LicensesView.swift              the Licenses window + component metadata
 Tests/FineWinePatcherTests/
   ModChainTests.swift             the mod-chain ini-editing rules (swift test)
+  MetalHUDTests.swift             bottle env editing, related-app discovery, apply/revert
   UsageTelemetryTests.swift       per-run prompt schema + metadata allowlist checks (swift test)
 Resources/licenses/               license texts bundled into the app
 Resources/AppIcon.icns            the app icon (committed; regenerate with make-appicon.sh)

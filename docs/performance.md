@@ -69,6 +69,9 @@ ps -M -p "$(pgrep -f 'Endfield[.]exe' | head -1)"     # per-thread CPU of the ga
 sample "$(pgrep -f 'Endfield[.]exe' | head -1)" 5 1   # 5 s of call stacks (look for MTLCompiler / AGXMetal)
 ```
 
+You can also view real-time FPS, frame timing, and Metal memory directly on screen using Apple's **Metal Performance HUD**: enable it via **Tools → Metal HUD…** in the patcher app, or set `METAL_HUD=1` when running `scripts/create-bottle.sh` (or `UPDATE=1 METAL_HUD=1 ./scripts/create-bottle.sh`). Restart the bottle after toggling.
+
+
 ---
 
 ## Thermal & CPU Behaviour

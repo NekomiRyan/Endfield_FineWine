@@ -346,6 +346,22 @@ final class PatcherEngine: ObservableObject {
     @Published var modError: String?
     @Published private(set) var modAppliedPlan: ChainPlan?
 
+    // MARK: Metal HUD (optional Tools phase; bottle-side)
+
+    @Published private(set) var hudSteps: [Step] = []
+    @Published private(set) var hudIsRunning = false
+    @Published var hudError: String?
+
+    private static let hudStepLabels = [
+        "Writing MTL_HUD_ENABLED into the bottle",
+        "Updating related macOS launchers",
+    ]
+
+    private static let hudRevertLabels = [
+        "Removing MTL_HUD_ENABLED from the bottle",
+        "Restoring macOS launchers",
+    ]
+
     private static let modStepLabels = [
         "Backing up d3dx.ini",
         "Staging the backend d3d11.dll",
@@ -521,6 +537,73 @@ final class PatcherEngine: ObservableObject {
             }
         }
     }
+
+    func applyMetalHUD(plan: MetalHUD.Plan) {
+        guard !isRunning, !hudIsRunning else { return }
+        hudError = nil
+        hudIsRunning = true
+        hudSteps = Self.hudStepLabels.enumerated().map { Step(id: $0.offset, label: $0.element) }
+
+        Task.detached(priority: .userInitiated) {
+            do {
+                await MainActor.run { self.hudSteps[0].status = .running }
+                _ = try MetalHUD.apply(plan: plan)
+                await MainActor.run {
+                    self.hudSteps[0].status = .done
+                    self.hudSteps[1].status = .done
+                    self.hudIsRunning = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.hudSteps[0].status = .failed
+                    self.hudError = error.localizedDescription
+                    self.hudIsRunning = false
+                }
+            }
+        }
+    }
+
+    func revertMetalHUD(bottle: URL) {
+        guard !isRunning, !hudIsRunning else { return }
+        hudError = nil
+        hudIsRunning = true
+        hudSteps = Self.hudRevertLabels.enumerated().map { Step(id: $0.offset, label: $0.element) }
+
+        Task.detached(priority: .userInitiated) {
+            do {
+                await MainActor.run { self.hudSteps[0].status = .running }
+                try MetalHUD.revert(bottle: bottle)
+                await MainActor.run {
+                    self.hudSteps[0].status = .done
+                    self.hudSteps[1].status = .done
+                    self.hudIsRunning = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.hudSteps[0].status = .failed
+                    self.hudError = error.localizedDescription
+                    self.hudIsRunning = false
+                }
+            }
+        }
+    }
+
+    func setMetalHUDFPS(bottle: URL, fps: String?) {
+        do {
+            try MetalHUD.setFPSCap(bottle: bottle, fps: fps)
+        } catch {
+            self.hudError = error.localizedDescription
+        }
+    }
+
+    func stopBottle(bottle: URL) {
+        do {
+            try MetalHUD.stopBottle(bottle: bottle, app: patchedApp)
+        } catch {
+            self.hudError = error.localizedDescription
+        }
+    }
+
 
     nonisolated static let originalBundleIdentifier = "com.codeweavers.CrossOver"
     nonisolated static var patchedBundleIdentifier: String {

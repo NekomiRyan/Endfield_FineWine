@@ -426,6 +426,12 @@ struct AutomatedSetupView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Toggle("Metal Performance HUD", isOn: $settings.metalHUD)
+                    Text("Optional Apple performance overlay (FPS, memory, frame times) on Metal clients. Off by default.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(4)
